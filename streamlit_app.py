@@ -174,49 +174,204 @@ def main():
         total_open_interest = pd.to_numeric(df['openInterest'], errors='coerce').sum()
         st.metric("Total Open Interest", f"{total_open_interest:,.0f}")
 
+    # Fetch options data upfront for the forward curve
+    first_symbols = df['symbol'].iloc[:num_contracts].tolist()
+    
+    with st.spinner("Fetching options data for forward curve..."):
+        options_df = fetch_options_data(first_symbols)
+    
+    # Merge futures and options data
+    if not options_df.empty:
+        merged_df = options_df.merge(df[['symbol', 'lastPrice', 'priceChange', 'volume', 'openInterest']], 
+                                   left_on='Contract', 
+                                   right_on='symbol', 
+                                   how='left')
+        merged_df = merged_df.rename(columns={'lastPrice': 'Last Price'})
+    else:
+        # Fallback if options data fails
+        merged_df = df[['symbol', 'lastPrice', 'priceChange', 'volume', 'openInterest']].head(num_contracts).copy()
+        merged_df = merged_df.rename(columns={'symbol': 'Contract', 'lastPrice': 'Last Price'})
+        merged_df['Expiration Date'] = 'N/A'
+        merged_df['Options Days to Expiry'] = 0
+        merged_df['Futures Implied Volatility'] = 0
+
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["Forward Curve", "Contract Details", "Options Data", "Analytics"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Futures Curve with Options", "Individual Contract Analysis", "Raw Data", "Analytics"])
     
     with tab1:
-        st.subheader("Forward Curve")
+        st.subheader("Futures Curve with Options Data")
         
-        # Forward curve chart
-        fig_curve = px.line(df.head(num_contracts), 
-                           x='symbol', 
-                           y='lastPrice',
-                           title='Crude Oil Futures Forward Curve',
-                           labels={'symbol': 'Contract Symbol', 'lastPrice': 'Last Price ($)'},
-                           markers=True)
+        # Display the merged data table
+        st.dataframe(merged_df[['Contract', 'Last Price', 'Expiration Date', 'Options Days to Expiry', 'Futures Implied Volatility']], 
+                    use_container_width=True)
+        
+        # Forward curve chart with options data
+        fig_curve = go.Figure()
+        
+        # Add price line
+        fig_curve.add_trace(go.Scatter(
+            x=merged_df['Contract'],
+            y=merged_df['Last Price'],
+            mode='lines+markers',
+            name='Last Price',
+            line=dict(color='blue', width=2),
+            marker=dict(size=8),
+            hovertemplate='<b>%{x}</b><br>Price: $%{y:.2f}<extra></extra>'
+        ))
         
         fig_curve.update_layout(
-            xaxis_title="Contract Symbol",
-            yaxis_title="Price ($)",
-            hovermode='x unified'
+            title='Crude Oil Futures Forward Curve',
+            xaxis_title='Contract Symbol',
+            yaxis_title='Price ($)',
+            hovermode='x unified',
+            showlegend=True
         )
         
         st.plotly_chart(fig_curve, use_container_width=True)
         
-        # Price change scatter - handle NaN values in volume
-        df_plot = df.head(num_contracts).copy()
-        df_plot['volume_clean'] = pd.to_numeric(df_plot['volume'], errors='coerce').fillna(1)
-        df_plot['volume_clean'] = df_plot['volume_clean'].clip(lower=1)  # Ensure positive values for size
+        # Additional charts in columns
+        col1, col2 = st.columns(2)
         
-        fig_change = px.scatter(df_plot,
-                               x='symbol',
-                               y='priceChange',
-                               size='volume_clean',
-                               color='priceChange',
-                               title='Price Changes by Contract',
-                               labels={'symbol': 'Contract Symbol', 'priceChange': 'Price Change ($)'},
-                               color_continuous_scale='RdYlGn',
-                               hover_data={'volume_clean': ':,.0f'})
+        with col1:
+            # Days to expiry chart
+            if 'Options Days to Expiry' in merged_df.columns and merged_df['Options Days to Expiry'].sum() > 0:
+                fig_days = px.bar(merged_df,
+                                 x='Contract',
+                                 y='Options Days to Expiry',
+                                 title='Days to Options Expiry',
+                                 color='Options Days to Expiry',
+                                 color_continuous_scale='viridis')
+                st.plotly_chart(fig_days, use_container_width=True)
+            else:
+                st.info("Options expiry data not available")
         
-        st.plotly_chart(fig_change, use_container_width=True)
+        with col2:
+            # Implied volatility chart
+            if 'Futures Implied Volatility' in merged_df.columns and merged_df['Futures Implied Volatility'].sum() > 0:
+                fig_iv = px.bar(merged_df,
+                               x='Contract',
+                               y='Futures Implied Volatility',
+                               title='Implied Volatility (%)',
+                               color='Futures Implied Volatility',
+                               color_continuous_scale='RdYlBu')
+                st.plotly_chart(fig_iv, use_container_width=True)
+            else:
+                st.info("Implied volatility data not available")
     
     with tab2:
+        st.subheader("Individual Contract Analysis")
+        
+        # Contract selector
+        selected_contract = st.selectbox(
+            "Select a contract to analyze:",
+            options=merged_df['Contract'].tolist(),
+            index=0
+        )
+        
+        # Get data for selected contract
+        contract_data = merged_df[merged_df['Contract'] == selected_contract].iloc[0]
+        
+        # Display contract metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Last Price", f"${contract_data['Last Price']:.2f}")
+        
+        with col2:
+            if 'priceChange' in contract_data and pd.notna(contract_data['priceChange']):
+                change = contract_data['priceChange']
+                st.metric("Price Change", f"${change:.2f}", delta=f"{change:.2f}")
+            else:
+                st.metric("Price Change", "N/A")
+        
+        with col3:
+            if 'Options Days to Expiry' in contract_data:
+                st.metric("Days to Expiry", f"{contract_data['Options Days to Expiry']:.0f}")
+            else:
+                st.metric("Days to Expiry", "N/A")
+        
+        with col4:
+            if 'Futures Implied Volatility' in contract_data:
+                st.metric("Implied Volatility", f"{contract_data['Futures Implied Volatility']:.2f}%")
+            else:
+                st.metric("Implied Volatility", "N/A")
+        
+        # Create a single contract curve (historical simulation)
+        st.subheader(f"Price Analysis for {selected_contract}")
+        
+        # Since we don't have historical data, create a simulated curve based on current price
+        import numpy as np
+        current_price = contract_data['Last Price']
+        
+        # Generate sample data points (in a real app, this would be historical data)
+        days = list(range(-30, 1))  # Last 30 days
+        np.random.seed(42)  # For consistent results
+        price_volatility = 0.02  # 2% daily volatility
+        random_walks = np.cumsum(np.random.normal(0, price_volatility, len(days)))
+        prices = [current_price + (current_price * walk) for walk in random_walks]
+        
+        # Create DataFrame for the curve
+        curve_df = pd.DataFrame({
+            'Days': days,
+            'Price': prices,
+            'Date': [datetime.datetime.now() + datetime.timedelta(days=d) for d in days]
+        })
+        
+        # Plot the individual contract curve
+        fig_individual = go.Figure()
+        
+        fig_individual.add_trace(go.Scatter(
+            x=curve_df['Date'],
+            y=curve_df['Price'],
+            mode='lines+markers',
+            name=f'{selected_contract} Price',
+            line=dict(color='green', width=2),
+            marker=dict(size=4),
+            hovertemplate='<b>%{x}</b><br>Price: $%{y:.2f}<extra></extra>'
+        ))
+        
+        # Add current price line
+        fig_individual.add_hline(
+            y=current_price,
+            line_dash="dash",
+            line_color="red",
+            annotation_text=f"Current: ${current_price:.2f}"
+        )
+        
+        fig_individual.update_layout(
+            title=f'{selected_contract} Price Curve (Simulated Historical Data)',
+            xaxis_title='Date',
+            yaxis_title='Price ($)',
+            hovermode='x unified'
+        )
+        
+        st.plotly_chart(fig_individual, use_container_width=True)
+        
+        # Additional contract details
         st.subheader("Contract Details")
         
-        # Display data table
+        details_df = pd.DataFrame({
+            'Attribute': ['Contract Symbol', 'Last Price', 'Price Change', 'Volume', 'Open Interest', 
+                         'Expiration Date', 'Days to Expiry', 'Implied Volatility'],
+            'Value': [
+                contract_data['Contract'],
+                f"${contract_data['Last Price']:.2f}",
+                f"${contract_data.get('priceChange', 'N/A'):.2f}" if pd.notna(contract_data.get('priceChange')) else 'N/A',
+                f"{contract_data.get('volume', 'N/A'):,.0f}" if pd.notna(contract_data.get('volume')) else 'N/A',
+                f"{contract_data.get('openInterest', 'N/A'):,.0f}" if pd.notna(contract_data.get('openInterest')) else 'N/A',
+                contract_data.get('Expiration Date', 'N/A'),
+                f"{contract_data.get('Options Days to Expiry', 'N/A'):.0f}" if pd.notna(contract_data.get('Options Days to Expiry')) else 'N/A',
+                f"{contract_data.get('Futures Implied Volatility', 'N/A'):.2f}%" if pd.notna(contract_data.get('Futures Implied Volatility')) else 'N/A'
+            ]
+        })
+        
+        st.dataframe(details_df, use_container_width=True, hide_index=True)
+    
+    with tab3:
+        st.subheader("Raw Data")
+        
+        # Display raw futures data
+        st.subheader("Futures Data")
         display_df = df.head(num_contracts).copy()
         display_df['lastPrice'] = display_df['lastPrice'].apply(lambda x: f"${x:.2f}")
         display_df['priceChange'] = display_df['priceChange'].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
@@ -225,6 +380,11 @@ def main():
         
         st.dataframe(display_df[['symbol', 'lastPrice', 'priceChange', 'volume', 'openInterest']], 
                     use_container_width=True)
+        
+        # Display options data if available
+        if not options_df.empty:
+            st.subheader("Options Data")
+            st.dataframe(options_df, use_container_width=True)
         
         # Volume and Open Interest charts
         col1, col2 = st.columns(2)
@@ -248,51 +408,6 @@ def main():
                            title='Open Interest by Contract',
                            labels={'openInterest_clean': 'Open Interest'})
             st.plotly_chart(fig_oi, use_container_width=True)
-    
-    with tab3:
-        st.subheader("Options Data")
-        
-        if st.button("Fetch Options Data", type="primary"):
-            first_symbols = df['symbol'].iloc[:num_contracts].tolist()
-            
-            with st.spinner("Fetching options data... This may take a moment."):
-                options_df = fetch_options_data(first_symbols)
-            
-            if not options_df.empty:
-                # Merge with futures data
-                merged_df = options_df.merge(df[['symbol', 'lastPrice']], 
-                                           left_on='Contract', 
-                                           right_on='symbol', 
-                                           how='left')
-                
-                st.success(f"Successfully fetched options data for {len(options_df)} contracts")
-                
-                # Display options data
-                st.dataframe(merged_df, use_container_width=True)
-                
-                # Implied volatility chart
-                if 'Futures Implied Volatility' in merged_df.columns:
-                    fig_iv = px.bar(merged_df,
-                                   x='Contract',
-                                   y='Futures Implied Volatility',
-                                   title='Implied Volatility by Contract',
-                                   labels={'Futures Implied Volatility': 'Implied Volatility (%)'})
-                    st.plotly_chart(fig_iv, use_container_width=True)
-                
-                # Days to expiry vs IV
-                if 'Options Days to Expiry' in merged_df.columns:
-                    fig_days_iv = px.scatter(merged_df,
-                                           x='Options Days to Expiry',
-                                           y='Futures Implied Volatility',
-                                           size='lastPrice',
-                                           hover_data=['Contract'],
-                                           title='Days to Expiry vs Implied Volatility')
-                    st.plotly_chart(fig_days_iv, use_container_width=True)
-                
-                # Store in session state for analytics tab
-                st.session_state['options_data'] = merged_df
-            else:
-                st.warning("No options data could be fetched. Please try again later.")
     
     with tab4:
         st.subheader("Analytics")
