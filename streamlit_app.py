@@ -189,7 +189,7 @@ def main():
     col1, col2 = st.columns(2)
     
     with col1:
-        front_month_contract = df['symbol'].iloc[0] if not df.empty else "N/A"
+        front_month_contract = df['symbol'].iloc[1] if not df.empty else "N/A"
         st.metric("Front Month Contract", front_month_contract)
     
     with col2:
