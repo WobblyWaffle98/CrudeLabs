@@ -185,23 +185,16 @@ def main():
         st.error("Failed to fetch futures data. Please try again later.")
         return
     
-    # Display basic info
-    col1, col2, col3, col4 = st.columns(4)
+    # Display basic info - front month only
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.metric("Total Contracts", len(df))
+        front_month_contract = df['symbol'].iloc[0] if not df.empty else "N/A"
+        st.metric("Front Month Contract", front_month_contract)
     
     with col2:
-        avg_price = df['lastPrice'].mean()
-        st.metric("Average Price", f"${avg_price:.2f}")
-    
-    with col3:
-        total_volume = pd.to_numeric(df['volume'], errors='coerce').sum()
-        st.metric("Total Volume", f"{total_volume:,.0f}")
-    
-    with col4:
-        total_open_interest = pd.to_numeric(df['openInterest'], errors='coerce').sum()
-        st.metric("Total Open Interest", f"{total_open_interest:,.0f}")
+        front_month_price = df['lastPrice'].iloc[0] if not df.empty else 0
+        st.metric("Front Month Price", f"${front_month_price:.2f}")
 
     # Fetch options data upfront for the forward curve
     first_symbols = df['symbol'].iloc[:num_contracts].tolist()
@@ -318,6 +311,7 @@ def main():
                 
                 # Calculate metrics
                 latest_price = df_wti['Close'].dropna().iloc[-1] if not df_wti['Close'].dropna().empty else 0
+                latest_date = df_wti['Date'].iloc[-1].strftime('%Y-%m-%d') if not df_wti.empty else "N/A"
                 price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[-2]) if len(df_wti['Close'].dropna()) > 1 else 0
                 
                 # Calculate 52-week (252 trading days) high and low
@@ -351,7 +345,8 @@ def main():
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric("Current Price", f"${latest_price:.2f}", delta=f"{price_change:+.2f}")
+                    st.metric("Last Closing Price", f"${latest_price:.2f}", delta=f"{price_change:+.2f}")
+                    st.caption(f"Date: {latest_date}")
                 
                 with col2:
                     st.metric("52W High", f"${high_52w:.2f}")
@@ -524,6 +519,7 @@ def main():
             if not df_wti.empty and 'Close' in df_wti.columns:
                 # Show metrics for cached data too
                 latest_price = df_wti['Close'].dropna().iloc[-1] if not df_wti['Close'].dropna().empty else 0
+                latest_date = df_wti['Date'].iloc[-1].strftime('%Y-%m-%d') if not df_wti.empty else "N/A"
                 price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[-2]) if len(df_wti['Close'].dropna()) > 1 else 0
                 
                 # 52-week high/low calculation
@@ -549,7 +545,8 @@ def main():
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric("Current Price", f"${latest_price:.2f}", delta=f"{price_change:+.2f}")
+                    st.metric("Last Closing Price", f"${latest_price:.2f}", delta=f"{price_change:+.2f}")
+                    st.caption(f"Date: {latest_date}")
                 
                 with col2:
                     st.metric("52W High", f"${high_52w:.2f}")
