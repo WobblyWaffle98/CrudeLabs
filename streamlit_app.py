@@ -377,44 +377,138 @@ def main():
                 with col8:
                     st.metric("", "")  # Empty for spacing
                 
-                # Chart period selector
-                st.subheader("Chart Period")
-                chart_period = st.selectbox(
-                    "Select time period:",
-                    options=["3 Months", "YTD", "Full Period"],
-                    index=2  # Default to Full Period
-                )
+                # Create all four charts
+                st.subheader("WTI Price Analysis")
                 
-                # Filter data based on selected period
-                if chart_period == "3 Months":
-                    # Show last 3 months (approximately 63 trading days)
-                    chart_data = df_wti.tail(min(63, len(df_wti)))
-                    chart_title = "WTI Crude Oil Price - Last 3 Months"
-                elif chart_period == "YTD":
-                    # Show Year-to-Date data
-                    current_year = datetime.datetime.now().year
-                    ytd_start = datetime.datetime(current_year, 1, 1)
-                    chart_data = df_wti[df_wti['Date'] >= ytd_start]
-                    chart_title = f"WTI Crude Oil Price - YTD {current_year}"
-                else:
-                    # Show full period
-                    chart_data = df_wti
-                    chart_title = "WTI Crude Oil Price - Full Period"
+                # Prepare data for different periods
+                current_year = datetime.datetime.now().year
+                ytd_start = datetime.datetime(current_year, 1, 1)
                 
-                # Line chart
-                fig_price = px.line(chart_data,
-                                   x='Date',
-                                   y='Close',
-                                   title=chart_title,
-                                   labels={'Close': 'Price ($)', 'Date': 'Date'})
+                # 1. 3 Months chart
+                chart_3m = df_wti.tail(min(63, len(df_wti)))
                 
-                fig_price.update_layout(
-                    height=600,
-                    showlegend=False,
-                    hovermode='x unified'
-                )
+                # 2. YTD chart  
+                chart_ytd = df_wti[df_wti['Date'] >= ytd_start]
                 
-                st.plotly_chart(fig_price, use_container_width=True)
+                # 3. Full period chart
+                chart_full = df_wti
+                
+                # 4. Yearly rebased chart data preparation
+                df_rebased = df_wti.copy()
+                df_rebased['Year'] = df_rebased['Date'].dt.year
+                df_rebased['DayOfYear'] = df_rebased['Date'].dt.dayofyear
+                df_rebased['Quarter'] = df_rebased['Date'].dt.quarter
+                
+                # Rebase function (per year)
+                def rebase(series):
+                    if len(series) > 0:
+                        return (series / series.iloc[0]) * 100
+                    return series
+                
+                df_rebased['Rebased'] = df_rebased.groupby('Year')['Close'].transform(rebase)
+                
+                # Create charts in 2x2 grid
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # 3 Months chart
+                    fig_3m = px.line(chart_3m,
+                                    x='Date',
+                                    y='Close',
+                                    title='WTI - Last 3 Months',
+                                    labels={'Close': 'Price ($)', 'Date': 'Date'})
+                    fig_3m.update_layout(height=400, showlegend=False)
+                    st.plotly_chart(fig_3m, use_container_width=True)
+                
+                with col2:
+                    # YTD chart
+                    fig_ytd = px.line(chart_ytd,
+                                     x='Date',
+                                     y='Close',
+                                     title=f'WTI - YTD {current_year}',
+                                     labels={'Close': 'Price ($)', 'Date': 'Date'})
+                    fig_ytd.update_layout(height=400, showlegend=False)
+                    st.plotly_chart(fig_ytd, use_container_width=True)
+                
+                col3, col4 = st.columns(2)
+                
+                with col3:
+                    # Full period chart
+                    fig_full = px.line(chart_full,
+                                      x='Date',
+                                      y='Close',
+                                      title='WTI - Full Period',
+                                      labels={'Close': 'Price ($)', 'Date': 'Date'})
+                    fig_full.update_layout(height=400, showlegend=False)
+                    st.plotly_chart(fig_full, use_container_width=True)
+                
+                with col4:
+                    # Yearly rebased chart
+                    fig_rebased = go.Figure()
+                    
+                    # Add quarterly shaded regions
+                    quarter_colors = ['#e0f3f8', '#ccebc5', '#fddbc7', '#f2f0f7']
+                    quarter_ranges = {
+                        1: (1, 90),
+                        2: (91, 181), 
+                        3: (182, 273),
+                        4: (274, 366)
+                    }
+                    
+                    for q, (start, end) in quarter_ranges.items():
+                        fig_rebased.add_vrect(
+                            x0=start, x1=end,
+                            fillcolor=quarter_colors[q-1],
+                            opacity=0.2,
+                            layer="below",
+                            line_width=0,
+                            annotation_text=f"Q{q}",
+                            annotation_position="top"
+                        )
+                    
+                    # Choose years to highlight (last 3 years)
+                    all_years = sorted(df_rebased['Year'].unique())
+                    highlight_years = all_years[-3:] if len(all_years) >= 3 else all_years
+                    highlight_colors = ['crimson', 'royalblue', 'darkorange']
+                    muted_color = 'lightgray'
+                    
+                    # Plot yearly rebased lines
+                    for year, group in df_rebased.groupby('Year'):
+                        if year in highlight_years and len(highlight_years) <= 3:
+                            idx = highlight_years.index(year) % len(highlight_colors)
+                            color = highlight_colors[idx]
+                            line_width = 3
+                        else:
+                            color = muted_color
+                            line_width = 1.5
+                        
+                        fig_rebased.add_trace(
+                            go.Scatter(
+                                x=group['DayOfYear'],
+                                y=group['Rebased'],
+                                mode='lines',
+                                name=str(year),
+                                line=dict(color=color, width=line_width)
+                            )
+                        )
+                    
+                    fig_rebased.update_layout(
+                        height=400,
+                        title="WTI - Yearly Rebased (Q Highlights)",
+                        xaxis_title="Day of Year",
+                        yaxis_title="Rebased Price (first day = 100)",
+                        template="plotly_white",
+                        showlegend=True,
+                        legend=dict(
+                            yanchor="top",
+                            y=0.99,
+                            xanchor="left", 
+                            x=0.01,
+                            font=dict(size=10)
+                        )
+                    )
+                    
+                    st.plotly_chart(fig_rebased, use_container_width=True)
                 
                 # Store in session state
                 st.session_state['wti_data'] = df_wti
@@ -431,17 +525,28 @@ def main():
                 # Show metrics for cached data too
                 latest_price = df_wti['Close'].dropna().iloc[-1] if not df_wti['Close'].dropna().empty else 0
                 price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[-2]) if len(df_wti['Close'].dropna()) > 1 else 0
-                high_52w = df_wti['High'].max() if 'High' in df_wti.columns else latest_price
-                low_52w = df_wti['Low'].min() if 'Low' in df_wti.columns else latest_price
+                
+                # 52-week high/low calculation
+                trading_days_52w = min(252, len(df_wti))
+                recent_52w = df_wti.tail(trading_days_52w)
+                high_52w = recent_52w['High'].max() if 'High' in df_wti.columns else latest_price
+                low_52w = recent_52w['Low'].min() if 'Low' in df_wti.columns else latest_price
+                
                 avg_volume = df_wti['Volume'].mean() if 'Volume' in df_wti.columns and df_wti['Volume'].notna().any() else 0
                 
+                # Volatility calculations
+                volatility_1m = volatility_3m = volatility_1y = 0
+                
                 if len(df_wti['Close'].dropna()) > 1:
-                    volatility = df_wti['Close'].pct_change().std() * np.sqrt(252) * 100
-                else:
-                    volatility = 0
+                    if len(df_wti) >= 21:
+                        volatility_1m = df_wti['Close'].tail(21).pct_change().std() * np.sqrt(252) * 100
+                    if len(df_wti) >= 63:
+                        volatility_3m = df_wti['Close'].tail(63).pct_change().std() * np.sqrt(252) * 100
+                    trading_days_1y = min(252, len(df_wti))
+                    volatility_1y = df_wti['Close'].tail(trading_days_1y).pct_change().std() * np.sqrt(252) * 100
                 
                 # Display metrics
-                col1, col2, col3, col4, col5 = st.columns(5)
+                col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
                     st.metric("Current Price", f"${latest_price:.2f}", delta=f"{price_change:+.2f}")
@@ -455,15 +560,105 @@ def main():
                 with col4:
                     st.metric("Avg Volume", f"{avg_volume:,.0f}")
                 
-                with col5:
-                    st.metric("Volatility", f"{volatility:.1f}%")
+                # Volatility row
+                col5, col6, col7, col8 = st.columns(4)
                 
-                fig_price = px.line(df_wti,
-                               x='Date',
-                               y='Close',
-                               title='WTI Crude Oil Price (Cached Data)')
-                fig_price.update_layout(height=600, showlegend=False)
-                st.plotly_chart(fig_price, use_container_width=True)
+                with col5:
+                    st.metric("1M Volatility", f"{volatility_1m:.1f}%")
+                
+                with col6:
+                    st.metric("3M Volatility", f"{volatility_3m:.1f}%")
+                
+                with col7:
+                    st.metric("1Y Volatility", f"{volatility_1y:.1f}%")
+                
+                with col8:
+                    st.metric("", "")
+                
+                # Create all four charts for cached data
+                st.subheader("WTI Price Analysis")
+                
+                current_year = datetime.datetime.now().year
+                ytd_start = datetime.datetime(current_year, 1, 1)
+                
+                chart_3m = df_wti.tail(min(63, len(df_wti)))
+                chart_ytd = df_wti[df_wti['Date'] >= ytd_start]
+                chart_full = df_wti
+                
+                # Prepare rebased data
+                df_rebased = df_wti.copy()
+                df_rebased['Year'] = df_rebased['Date'].dt.year
+                df_rebased['DayOfYear'] = df_rebased['Date'].dt.dayofyear
+                
+                def rebase(series):
+                    if len(series) > 0:
+                        return (series / series.iloc[0]) * 100
+                    return series
+                
+                df_rebased['Rebased'] = df_rebased.groupby('Year')['Close'].transform(rebase)
+                
+                # 2x2 grid
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    fig_3m = px.line(chart_3m, x='Date', y='Close', title='WTI - Last 3 Months (Cached)')
+                    fig_3m.update_layout(height=400, showlegend=False)
+                    st.plotly_chart(fig_3m, use_container_width=True)
+                
+                with col2:
+                    fig_ytd = px.line(chart_ytd, x='Date', y='Close', title=f'WTI - YTD {current_year} (Cached)')
+                    fig_ytd.update_layout(height=400, showlegend=False)
+                    st.plotly_chart(fig_ytd, use_container_width=True)
+                
+                col3, col4 = st.columns(2)
+                
+                with col3:
+                    fig_full = px.line(chart_full, x='Date', y='Close', title='WTI - Full Period (Cached)')
+                    fig_full.update_layout(height=400, showlegend=False)
+                    st.plotly_chart(fig_full, use_container_width=True)
+                
+                with col4:
+                    # Yearly rebased chart
+                    fig_rebased = go.Figure()
+                    
+                    quarter_colors = ['#e0f3f8', '#ccebc5', '#fddbc7', '#f2f0f7']
+                    quarter_ranges = {1: (1, 90), 2: (91, 181), 3: (182, 273), 4: (274, 366)}
+                    
+                    for q, (start, end) in quarter_ranges.items():
+                        fig_rebased.add_vrect(
+                            x0=start, x1=end, fillcolor=quarter_colors[q-1],
+                            opacity=0.2, layer="below", line_width=0,
+                            annotation_text=f"Q{q}", annotation_position="top"
+                        )
+                    
+                    all_years = sorted(df_rebased['Year'].unique())
+                    highlight_years = all_years[-3:] if len(all_years) >= 3 else all_years
+                    highlight_colors = ['crimson', 'royalblue', 'darkorange']
+                    muted_color = 'lightgray'
+                    
+                    for year, group in df_rebased.groupby('Year'):
+                        if year in highlight_years and len(highlight_years) <= 3:
+                            idx = highlight_years.index(year) % len(highlight_colors)
+                            color = highlight_colors[idx]
+                            line_width = 3
+                        else:
+                            color = muted_color
+                            line_width = 1.5
+                        
+                        fig_rebased.add_trace(go.Scatter(
+                            x=group['DayOfYear'], y=group['Rebased'],
+                            mode='lines', name=str(year),
+                            line=dict(color=color, width=line_width)
+                        ))
+                    
+                    fig_rebased.update_layout(
+                        height=400, title="WTI - Yearly Rebased (Cached)",
+                        xaxis_title="Day of Year", yaxis_title="Rebased Price (first day = 100)",
+                        template="plotly_white", showlegend=True,
+                        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, font=dict(size=10))
+                    )
+                    
+                    st.plotly_chart(fig_rebased, use_container_width=True)
     
     # Auto-refresh logic
     if auto_refresh:
