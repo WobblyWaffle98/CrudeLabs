@@ -312,7 +312,7 @@ def main():
                 st.success(f"Successfully loaded {len(df_wti)} days of WTI data")
                 
                 # Ensure we have valid data
-                if 'Close' in df_wti.columns and not df_wti['Close'].isna().all():
+                if 'Close' in df_wti.columns and df_wti['Close'].notna().any():
                     # Display key metrics
                     latest_price = df_wti['Close'].dropna().iloc[-1] if not df_wti['Close'].dropna().empty else 0
                     price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[-2]) if len(df_wti['Close'].dropna()) > 1 else 0
