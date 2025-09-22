@@ -399,17 +399,16 @@ def main():
                     
                     st.plotly_chart(fig_candlestick, use_container_width=True)
                 
-                # Data table
-                st.subheader("Recent Data")
-                display_wti = df_wti.tail(10).copy()
-                if 'Date' in display_wti.columns:
-                    display_wti['Date'] = display_wti['Date'].dt.strftime('%Y-%m-%d')
-                display_wti = display_wti.round(2)
-                st.dataframe(display_wti, use_container_width=True, hide_index=True)
-                
-                # Store in session state
-                st.session_state['wti_data'] = df_wti
-                
+                    # Data table
+                    st.subheader("Recent Data")
+                    display_wti = df_wti.tail(10).copy()
+                    if 'Date' in display_wti.columns:
+                        display_wti['Date'] = display_wti['Date'].dt.strftime('%Y-%m-%d')
+                    display_wti = display_wti.round(2)
+                    st.dataframe(display_wti, use_container_width=True, hide_index=True)
+                    
+                    # Store in session state
+                    st.session_state['wti_data'] = df_wti
                 else:
                     st.warning("Data loaded but missing required price columns. Please try a different date range.")
             else:
