@@ -167,11 +167,11 @@ def main():
         st.metric("Average Price", f"${avg_price:.2f}")
     
     with col3:
-        total_volume = df['volume'].sum()
+        total_volume = pd.to_numeric(df['volume'], errors='coerce').sum()
         st.metric("Total Volume", f"{total_volume:,.0f}")
     
     with col4:
-        total_open_interest = df['openInterest'].sum()
+        total_open_interest = pd.to_numeric(df['openInterest'], errors='coerce').sum()
         st.metric("Total Open Interest", f"{total_open_interest:,.0f}")
 
     # Create tabs
@@ -196,15 +196,20 @@ def main():
         
         st.plotly_chart(fig_curve, use_container_width=True)
         
-        # Price change scatter
-        fig_change = px.scatter(df.head(num_contracts),
+        # Price change scatter - handle NaN values in volume
+        df_plot = df.head(num_contracts).copy()
+        df_plot['volume_clean'] = pd.to_numeric(df_plot['volume'], errors='coerce').fillna(1)
+        df_plot['volume_clean'] = df_plot['volume_clean'].clip(lower=1)  # Ensure positive values for size
+        
+        fig_change = px.scatter(df_plot,
                                x='symbol',
                                y='priceChange',
-                               size='volume',
+                               size='volume_clean',
                                color='priceChange',
                                title='Price Changes by Contract',
                                labels={'symbol': 'Contract Symbol', 'priceChange': 'Price Change ($)'},
-                               color_continuous_scale='RdYlGn')
+                               color_continuous_scale='RdYlGn',
+                               hover_data={'volume_clean': ':,.0f'})
         
         st.plotly_chart(fig_change, use_container_width=True)
     
@@ -225,17 +230,23 @@ def main():
         col1, col2 = st.columns(2)
         
         with col1:
-            fig_volume = px.bar(df.head(num_contracts),
+            df_volume = df.head(num_contracts).copy()
+            df_volume['volume_clean'] = pd.to_numeric(df_volume['volume'], errors='coerce').fillna(0)
+            fig_volume = px.bar(df_volume,
                                x='symbol',
-                               y='volume',
-                               title='Trading Volume by Contract')
+                               y='volume_clean',
+                               title='Trading Volume by Contract',
+                               labels={'volume_clean': 'Volume'})
             st.plotly_chart(fig_volume, use_container_width=True)
         
         with col2:
-            fig_oi = px.bar(df.head(num_contracts),
+            df_oi = df.head(num_contracts).copy()
+            df_oi['openInterest_clean'] = pd.to_numeric(df_oi['openInterest'], errors='coerce').fillna(0)
+            fig_oi = px.bar(df_oi,
                            x='symbol',
-                           y='openInterest',
-                           title='Open Interest by Contract')
+                           y='openInterest_clean',
+                           title='Open Interest by Contract',
+                           labels={'openInterest_clean': 'Open Interest'})
             st.plotly_chart(fig_oi, use_container_width=True)
     
     with tab3:
