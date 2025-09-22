@@ -319,18 +319,36 @@ def main():
                 # Calculate metrics
                 latest_price = df_wti['Close'].dropna().iloc[-1] if not df_wti['Close'].dropna().empty else 0
                 price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[-2]) if len(df_wti['Close'].dropna()) > 1 else 0
-                high_52w = df_wti['High'].max() if 'High' in df_wti.columns else latest_price
-                low_52w = df_wti['Low'].min() if 'Low' in df_wti.columns else latest_price
+                
+                # Calculate 52-week (252 trading days) high and low
+                trading_days_52w = min(252, len(df_wti))
+                recent_52w = df_wti.tail(trading_days_52w)
+                high_52w = recent_52w['High'].max() if 'High' in df_wti.columns else latest_price
+                low_52w = recent_52w['Low'].min() if 'Low' in df_wti.columns else latest_price
+                
                 avg_volume = df_wti['Volume'].mean() if 'Volume' in df_wti.columns and df_wti['Volume'].notna().any() else 0
                 
-                # Calculate volatility (annualized)
-                if len(df_wti['Close'].dropna()) > 1:
-                    volatility = df_wti['Close'].pct_change().std() * np.sqrt(252) * 100
-                else:
-                    volatility = 0
+                # Calculate volatility for different periods
+                volatility_1m = volatility_3m = volatility_1y = 0
                 
-                # Display metrics in columns
-                col1, col2, col3, col4, col5 = st.columns(5)
+                if len(df_wti['Close'].dropna()) > 1:
+                    # 1 Month volatility (21 trading days)
+                    if len(df_wti) >= 21:
+                        vol_1m_data = df_wti['Close'].tail(21).pct_change().std() * np.sqrt(252) * 100
+                        volatility_1m = vol_1m_data
+                    
+                    # 3 Month volatility (63 trading days)
+                    if len(df_wti) >= 63:
+                        vol_3m_data = df_wti['Close'].tail(63).pct_change().std() * np.sqrt(252) * 100
+                        volatility_3m = vol_3m_data
+                    
+                    # 1 Year volatility (252 trading days)
+                    trading_days_1y = min(252, len(df_wti))
+                    vol_1y_data = df_wti['Close'].tail(trading_days_1y).pct_change().std() * np.sqrt(252) * 100
+                    volatility_1y = vol_1y_data
+                
+                # Display metrics in two rows
+                col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
                     st.metric("Current Price", f"${latest_price:.2f}", delta=f"{price_change:+.2f}")
@@ -344,14 +362,50 @@ def main():
                 with col4:
                     st.metric("Avg Volume", f"{avg_volume:,.0f}")
                 
-                with col5:
-                    st.metric("Volatility", f"{volatility:.1f}%")
+                # Volatility metrics row
+                col5, col6, col7, col8 = st.columns(4)
                 
-                # Simple line chart
-                fig_price = px.line(df_wti,
+                with col5:
+                    st.metric("1M Volatility", f"{volatility_1m:.1f}%")
+                
+                with col6:
+                    st.metric("3M Volatility", f"{volatility_3m:.1f}%")
+                
+                with col7:
+                    st.metric("1Y Volatility", f"{volatility_1y:.1f}%")
+                
+                with col8:
+                    st.metric("", "")  # Empty for spacing
+                
+                # Chart period selector
+                st.subheader("Chart Period")
+                chart_period = st.selectbox(
+                    "Select time period:",
+                    options=["3 Months", "YTD", "Full Period"],
+                    index=2  # Default to Full Period
+                )
+                
+                # Filter data based on selected period
+                if chart_period == "3 Months":
+                    # Show last 3 months (approximately 63 trading days)
+                    chart_data = df_wti.tail(min(63, len(df_wti)))
+                    chart_title = "WTI Crude Oil Price - Last 3 Months"
+                elif chart_period == "YTD":
+                    # Show Year-to-Date data
+                    current_year = datetime.datetime.now().year
+                    ytd_start = datetime.datetime(current_year, 1, 1)
+                    chart_data = df_wti[df_wti['Date'] >= ytd_start]
+                    chart_title = f"WTI Crude Oil Price - YTD {current_year}"
+                else:
+                    # Show full period
+                    chart_data = df_wti
+                    chart_title = "WTI Crude Oil Price - Full Period"
+                
+                # Line chart
+                fig_price = px.line(chart_data,
                                    x='Date',
                                    y='Close',
-                                   title='WTI Crude Oil Price',
+                                   title=chart_title,
                                    labels={'Close': 'Price ($)', 'Date': 'Date'})
                 
                 fig_price.update_layout(
