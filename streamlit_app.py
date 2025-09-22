@@ -107,6 +107,11 @@ def load_oil_data(ticker='CL=F', start_date='2020-01-01', end_date=None):
         if data.empty:
             return pd.DataFrame()
         
+        # Handle MultiIndex columns
+        if isinstance(data.columns, pd.MultiIndex):
+            # Flatten the MultiIndex columns, keeping only the first level (OHLCV names)
+            data.columns = data.columns.get_level_values(0)
+        
         data = data.reset_index()
         data['Date'] = pd.to_datetime(data['Date'])
         return data
