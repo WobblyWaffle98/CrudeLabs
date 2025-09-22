@@ -316,6 +316,37 @@ def main():
             if not df_wti.empty and len(df_wti) > 0 and 'Close' in df_wti.columns:
                 st.success(f"Successfully loaded {len(df_wti)} days of WTI data")
                 
+                # Calculate metrics
+                latest_price = df_wti['Close'].dropna().iloc[-1] if not df_wti['Close'].dropna().empty else 0
+                price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[-2]) if len(df_wti['Close'].dropna()) > 1 else 0
+                high_52w = df_wti['High'].max() if 'High' in df_wti.columns else latest_price
+                low_52w = df_wti['Low'].min() if 'Low' in df_wti.columns else latest_price
+                avg_volume = df_wti['Volume'].mean() if 'Volume' in df_wti.columns and df_wti['Volume'].notna().any() else 0
+                
+                # Calculate volatility (annualized)
+                if len(df_wti['Close'].dropna()) > 1:
+                    volatility = df_wti['Close'].pct_change().std() * np.sqrt(252) * 100
+                else:
+                    volatility = 0
+                
+                # Display metrics in columns
+                col1, col2, col3, col4, col5 = st.columns(5)
+                
+                with col1:
+                    st.metric("Current Price", f"${latest_price:.2f}", delta=f"{price_change:+.2f}")
+                
+                with col2:
+                    st.metric("52W High", f"${high_52w:.2f}")
+                
+                with col3:
+                    st.metric("52W Low", f"${low_52w:.2f}")
+                
+                with col4:
+                    st.metric("Avg Volume", f"{avg_volume:,.0f}")
+                
+                with col5:
+                    st.metric("Volatility", f"{volatility:.1f}%")
+                
                 # Simple line chart
                 fig_price = px.line(df_wti,
                                    x='Date',
@@ -343,10 +374,40 @@ def main():
             df_wti = st.session_state['wti_data']
             
             if not df_wti.empty and 'Close' in df_wti.columns:
+                # Show metrics for cached data too
+                latest_price = df_wti['Close'].dropna().iloc[-1] if not df_wti['Close'].dropna().empty else 0
+                price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[-2]) if len(df_wti['Close'].dropna()) > 1 else 0
+                high_52w = df_wti['High'].max() if 'High' in df_wti.columns else latest_price
+                low_52w = df_wti['Low'].min() if 'Low' in df_wti.columns else latest_price
+                avg_volume = df_wti['Volume'].mean() if 'Volume' in df_wti.columns and df_wti['Volume'].notna().any() else 0
+                
+                if len(df_wti['Close'].dropna()) > 1:
+                    volatility = df_wti['Close'].pct_change().std() * np.sqrt(252) * 100
+                else:
+                    volatility = 0
+                
+                # Display metrics
+                col1, col2, col3, col4, col5 = st.columns(5)
+                
+                with col1:
+                    st.metric("Current Price", f"${latest_price:.2f}", delta=f"{price_change:+.2f}")
+                
+                with col2:
+                    st.metric("52W High", f"${high_52w:.2f}")
+                
+                with col3:
+                    st.metric("52W Low", f"${low_52w:.2f}")
+                
+                with col4:
+                    st.metric("Avg Volume", f"{avg_volume:,.0f}")
+                
+                with col5:
+                    st.metric("Volatility", f"{volatility:.1f}%")
+                
                 fig_price = px.line(df_wti,
-                                   x='Date',
-                                   y='Close',
-                                   title='WTI Crude Oil Price (Cached Data)')
+                               x='Date',
+                               y='Close',
+                               title='WTI Crude Oil Price (Cached Data)')
                 fig_price.update_layout(height=600, showlegend=False)
                 st.plotly_chart(fig_price, use_container_width=True)
     
