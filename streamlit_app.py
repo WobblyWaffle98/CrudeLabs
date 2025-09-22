@@ -7,6 +7,9 @@ import plotly.graph_objects as go
 from bs4 import BeautifulSoup
 import datetime
 import time
+import numpy as np
+import yfinance as yf
+from curl_cffi import requests as curl_requests
 
 # Set page config
 st.set_page_config(
@@ -89,6 +92,27 @@ def fetch_futures_data():
         st.error(f"Error fetching futures data: {str(e)}")
         return None
 
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def load_oil_data(ticker='CL=F', start_date='2020-01-01', end_date=None):
+    """Load oil data using yfinance with curl_cffi session"""
+    try:
+        # Create a curl_cffi session that mimics Chrome
+        session = curl_requests.Session(impersonate="chrome")
+        
+        # If no end_date provided, use current date
+        if end_date is None:
+            end_date = datetime.datetime.now().strftime('%Y-%m-%d')
+        
+        data = yf.download(ticker, start=start_date, end=end_date, session=session)
+        if data.empty:
+            return pd.DataFrame()
+        
+        data = data.reset_index()
+        data['Date'] = pd.to_datetime(data['Date'])
+        return data
+    except Exception as e:
+        st.error(f"Error loading oil data: {str(e)}")
+        return pd.DataFrame()
 @st.cache_data(ttl=300)
 def fetch_options_data(symbols):
     """Fetch options data for given symbols"""
@@ -196,7 +220,7 @@ def main():
         merged_df['Futures Implied Volatility'] = 0
 
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["Futures Curve with Options", "Individual Contract Analysis", "Raw Data", "Analytics"])
+    tab1, tab2 = st.tabs(["Futures Curve with Options", "Front Month Data"])
     
     with tab1:
         st.subheader("Futures Curve with Options Data")
@@ -259,184 +283,137 @@ def main():
                 st.info("Implied volatility data not available")
     
     with tab2:
-        st.subheader("Individual Contract Analysis")
+        st.subheader("Front Month WTI Crude Oil Data")
         
-        # Contract selector
-        selected_contract = st.selectbox(
-            "Select a contract to analyze:",
-            options=merged_df['Contract'].tolist(),
-            index=0
-        )
-        
-        # Get data for selected contract
-        contract_data = merged_df[merged_df['Contract'] == selected_contract].iloc[0]
-        
-        # Display contract metrics
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Last Price", f"${contract_data['Last Price']:.2f}")
-        
-        with col2:
-            if 'priceChange' in contract_data and pd.notna(contract_data['priceChange']):
-                change = contract_data['priceChange']
-                st.metric("Price Change", f"${change:.2f}", delta=f"{change:.2f}")
-            else:
-                st.metric("Price Change", "N/A")
-        
-        with col3:
-            if 'Options Days to Expiry' in contract_data:
-                st.metric("Days to Expiry", f"{contract_data['Options Days to Expiry']:.0f}")
-            else:
-                st.metric("Days to Expiry", "N/A")
-        
-        with col4:
-            if 'Futures Implied Volatility' in contract_data:
-                st.metric("Implied Volatility", f"{contract_data['Futures Implied Volatility']:.2f}%")
-            else:
-                st.metric("Implied Volatility", "N/A")
-        
-        # Create a single contract curve (historical simulation)
-        st.subheader(f"Price Analysis for {selected_contract}")
-        
-        # Since we don't have historical data, create a simulated curve based on current price
-        import numpy as np
-        current_price = contract_data['Last Price']
-        
-        # Generate sample data points (in a real app, this would be historical data)
-        days = list(range(-30, 1))  # Last 30 days
-        np.random.seed(42)  # For consistent results
-        price_volatility = 0.02  # 2% daily volatility
-        random_walks = np.cumsum(np.random.normal(0, price_volatility, len(days)))
-        prices = [current_price + (current_price * walk) for walk in random_walks]
-        
-        # Create DataFrame for the curve
-        curve_df = pd.DataFrame({
-            'Days': days,
-            'Price': prices,
-            'Date': [datetime.datetime.now() + datetime.timedelta(days=d) for d in days]
-        })
-        
-        # Plot the individual contract curve
-        fig_individual = go.Figure()
-        
-        fig_individual.add_trace(go.Scatter(
-            x=curve_df['Date'],
-            y=curve_df['Price'],
-            mode='lines+markers',
-            name=f'{selected_contract} Price',
-            line=dict(color='green', width=2),
-            marker=dict(size=4),
-            hovertemplate='<b>%{x}</b><br>Price: $%{y:.2f}<extra></extra>'
-        ))
-        
-        # Add current price line
-        fig_individual.add_hline(
-            y=current_price,
-            line_dash="dash",
-            line_color="red",
-            annotation_text=f"Current: ${current_price:.2f}"
-        )
-        
-        fig_individual.update_layout(
-            title=f'{selected_contract} Price Curve (Simulated Historical Data)',
-            xaxis_title='Date',
-            yaxis_title='Price ($)',
-            hovermode='x unified'
-        )
-        
-        st.plotly_chart(fig_individual, use_container_width=True)
-        
-        # Additional contract details
-        st.subheader("Contract Details")
-        
-        details_df = pd.DataFrame({
-            'Attribute': ['Contract Symbol', 'Last Price', 'Price Change', 'Volume', 'Open Interest', 
-                         'Expiration Date', 'Days to Expiry', 'Implied Volatility'],
-            'Value': [
-                contract_data['Contract'],
-                f"${contract_data['Last Price']:.2f}",
-                f"${contract_data.get('priceChange', 'N/A'):.2f}" if pd.notna(contract_data.get('priceChange')) else 'N/A',
-                f"{contract_data.get('volume', 'N/A'):,.0f}" if pd.notna(contract_data.get('volume')) else 'N/A',
-                f"{contract_data.get('openInterest', 'N/A'):,.0f}" if pd.notna(contract_data.get('openInterest')) else 'N/A',
-                contract_data.get('Expiration Date', 'N/A'),
-                f"{contract_data.get('Options Days to Expiry', 'N/A'):.0f}" if pd.notna(contract_data.get('Options Days to Expiry')) else 'N/A',
-                f"{contract_data.get('Futures Implied Volatility', 'N/A'):.2f}%" if pd.notna(contract_data.get('Futures Implied Volatility')) else 'N/A'
-            ]
-        })
-        
-        st.dataframe(details_df, use_container_width=True, hide_index=True)
-    
-    with tab3:
-        st.subheader("Raw Data")
-        
-        # Display raw futures data
-        st.subheader("Futures Data")
-        display_df = df.head(num_contracts).copy()
-        display_df['lastPrice'] = display_df['lastPrice'].apply(lambda x: f"${x:.2f}")
-        display_df['priceChange'] = display_df['priceChange'].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
-        display_df['volume'] = display_df['volume'].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A")
-        display_df['openInterest'] = display_df['openInterest'].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "N/A")
-        
-        st.dataframe(display_df[['symbol', 'lastPrice', 'priceChange', 'volume', 'openInterest']], 
-                    use_container_width=True)
-        
-        # Display options data if available
-        if not options_df.empty:
-            st.subheader("Options Data")
-            st.dataframe(options_df, use_container_width=True)
-        
-        # Volume and Open Interest charts
+        # Date range selector
         col1, col2 = st.columns(2)
         
         with col1:
-            df_volume = df.head(num_contracts).copy()
-            df_volume['volume_clean'] = pd.to_numeric(df_volume['volume'], errors='coerce').fillna(0)
-            fig_volume = px.bar(df_volume,
-                               x='symbol',
-                               y='volume_clean',
-                               title='Trading Volume by Contract',
-                               labels={'volume_clean': 'Volume'})
-            st.plotly_chart(fig_volume, use_container_width=True)
+            start_date = st.date_input(
+                "Start Date",
+                value=datetime.datetime(2020, 1, 1),
+                max_value=datetime.datetime.now()
+            )
         
         with col2:
-            df_oi = df.head(num_contracts).copy()
-            df_oi['openInterest_clean'] = pd.to_numeric(df_oi['openInterest'], errors='coerce').fillna(0)
-            fig_oi = px.bar(df_oi,
-                           x='symbol',
-                           y='openInterest_clean',
-                           title='Open Interest by Contract',
-                           labels={'openInterest_clean': 'Open Interest'})
-            st.plotly_chart(fig_oi, use_container_width=True)
+            end_date = st.date_input(
+                "End Date",
+                value=datetime.datetime.now(),
+                max_value=datetime.datetime.now()
+            )
+        
+        # Load oil data button
+        if st.button("Load Front Month Data", type="primary"):
+            with st.spinner("Loading WTI front month data..."):
+                df_wti = load_oil_data('CL=F', start_date=start_date.strftime('%Y-%m-%d'), 
+                                     end_date=end_date.strftime('%Y-%m-%d'))
+            
+            if not df_wti.empty:
+                st.success(f"Successfully loaded {len(df_wti)} days of WTI data")
+                
+                # Display key metrics
+                latest_price = df_wti['Close'].iloc[-1]
+                price_change = df_wti['Close'].iloc[-1] - df_wti['Close'].iloc[-2] if len(df_wti) > 1 else 0
+                high_52w = df_wti['High'].max()
+                low_52w = df_wti['Low'].min()
+                avg_volume = df_wti['Volume'].mean()
+                
+                col1, col2, col3, col4, col5 = st.columns(5)
+                
+                with col1:
+                    st.metric("Current Price", f"${latest_price:.2f}", delta=f"{price_change:.2f}")
+                
+                with col2:
+                    st.metric("52W High", f"${high_52w:.2f}")
+                
+                with col3:
+                    st.metric("52W Low", f"${low_52w:.2f}")
+                
+                with col4:
+                    st.metric("Avg Volume", f"{avg_volume:,.0f}")
+                
+                with col5:
+                    volatility = df_wti['Close'].pct_change().std() * np.sqrt(252) * 100
+                    st.metric("Volatility", f"{volatility:.1f}%")
+                
+                # Price chart
+                fig_price = go.Figure()
+                
+                fig_price.add_trace(go.Scatter(
+                    x=df_wti['Date'],
+                    y=df_wti['Close'],
+                    mode='lines',
+                    name='WTI Close Price',
+                    line=dict(color='blue', width=2),
+                    hovertemplate='<b>%{x}</b><br>Price: $%{y:.2f}<extra></extra>'
+                ))
+                
+                fig_price.update_layout(
+                    title='WTI Crude Oil Front Month Price',
+                    xaxis_title='Date',
+                    yaxis_title='Price ($)',
+                    hovermode='x unified',
+                    height=500
+                )
+                
+                st.plotly_chart(fig_price, use_container_width=True)
+                
+                # Volume chart
+                fig_volume = px.bar(df_wti,
+                                   x='Date',
+                                   y='Volume',
+                                   title='WTI Trading Volume',
+                                   color='Volume',
+                                   color_continuous_scale='blues')
+                
+                fig_volume.update_layout(height=400)
+                st.plotly_chart(fig_volume, use_container_width=True)
+                
+                # OHLC Candlestick chart
+                fig_candlestick = go.Figure(data=go.Candlestick(
+                    x=df_wti['Date'],
+                    open=df_wti['Open'],
+                    high=df_wti['High'],
+                    low=df_wti['Low'],
+                    close=df_wti['Close'],
+                    name='WTI OHLC'
+                ))
+                
+                fig_candlestick.update_layout(
+                    title='WTI Crude Oil Candlestick Chart',
+                    xaxis_title='Date',
+                    yaxis_title='Price ($)',
+                    height=500,
+                    xaxis_rangeslider_visible=False
+                )
+                
+                st.plotly_chart(fig_candlestick, use_container_width=True)
+                
+                # Data table
+                st.subheader("Recent Data")
+                display_wti = df_wti.tail(10).copy()
+                display_wti['Date'] = display_wti['Date'].dt.strftime('%Y-%m-%d')
+                display_wti = display_wti.round(2)
+                st.dataframe(display_wti, use_container_width=True, hide_index=True)
+                
+                # Store in session state
+                st.session_state['wti_data'] = df_wti
+                
+            else:
+                st.error("Failed to load WTI data. Please check your internet connection and try again.")
+        
+        # Show cached data if available
+        elif 'wti_data' in st.session_state:
+            st.info("Showing previously loaded data. Click 'Load Front Month Data' to refresh.")
+            df_wti = st.session_state['wti_data']
+            
+            # Show basic chart
+            fig_price = px.line(df_wti,
+                               x='Date',
+                               y='Close',
+                               title='WTI Crude Oil Front Month Price (Cached Data)')
+            st.plotly_chart(fig_price, use_container_width=True)
     
-    with tab4:
-        st.subheader("Analytics")
-        
-        # Price distribution
-        fig_hist = px.histogram(df.head(num_contracts),
-                               x='lastPrice',
-                               title='Price Distribution',
-                               nbins=20)
-        st.plotly_chart(fig_hist, use_container_width=True)
-        
-        # Correlation matrix if options data is available
-        if 'options_data' in st.session_state:
-            options_data = st.session_state['options_data']
-            
-            # Numeric columns for correlation
-            numeric_cols = ['lastPrice', 'Options Days to Expiry', 'Futures Implied Volatility']
-            correlation_data = options_data[numeric_cols].corr()
-            
-            fig_corr = px.imshow(correlation_data,
-                               text_auto=True,
-                               aspect="auto",
-                               title='Correlation Matrix')
-            st.plotly_chart(fig_corr, use_container_width=True)
-        
-        # Summary statistics
-        st.subheader("Summary Statistics")
-        st.dataframe(df.head(num_contracts).describe(), use_container_width=True)
-
     # Auto-refresh logic
     if auto_refresh:
         time.sleep(30)
@@ -447,4 +424,4 @@ if __name__ == "__main__":
 
 # Footer
 st.markdown("---")
-st.markdown("**Data Source:** Barchart.com | **Last Updated:** " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+st.markdown("**Data Sources:** Barchart.com, Yahoo Finance | **Last Updated:** " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
