@@ -188,14 +188,13 @@ def main():
     # Display basic info - front month only
     col1, col2 = st.columns(2)
 
-    st.dataframe(df)
     
     with col1:
         front_month_contract = df['symbol'].iloc[1] if not df.empty else "N/A"
         st.metric("Front Month Contract", front_month_contract)
     
     with col2:
-        front_month_price = df['lastPrice'].iloc[0] if not df.empty else 0
+        front_month_price = df['lastPrice'].iloc[1] if not df.empty else 0
         st.metric("Front Month Price", f"${front_month_price:.2f}")
 
     # Fetch options data upfront for the forward curve
