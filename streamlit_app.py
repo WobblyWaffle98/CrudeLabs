@@ -308,15 +308,17 @@ def main():
                 df_wti = load_oil_data('CL=F', start_date=start_date.strftime('%Y-%m-%d'), 
                                      end_date=end_date.strftime('%Y-%m-%d'))
             
-            if not df_wti.empty:
+            if not df_wti.empty and len(df_wti) > 0:
                 st.success(f"Successfully loaded {len(df_wti)} days of WTI data")
                 
-                # Display key metrics
-                latest_price = df_wti['Close'].iloc[-1]
-                price_change = df_wti['Close'].iloc[-1] - df_wti['Close'].iloc[-2] if len(df_wti) > 1 else 0
-                high_52w = df_wti['High'].max()
-                low_52w = df_wti['Low'].min()
-                avg_volume = df_wti['Volume'].mean()
+                # Ensure we have valid data
+                if 'Close' in df_wti.columns and not df_wti['Close'].isna().all():
+                    # Display key metrics
+                    latest_price = df_wti['Close'].dropna().iloc[-1] if not df_wti['Close'].dropna().empty else 0
+                    price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[-2]) if len(df_wti['Close'].dropna()) > 1 else 0
+                    high_52w = df_wti['High'].max() if 'High' in df_wti.columns else 0
+                    low_52w = df_wti['Low'].min() if 'Low' in df_wti.columns else 0
+                    avg_volume = df_wti['Volume'].mean() if 'Volume' in df_wti.columns and not df_wti['Volume'].isna().all() else 0
                 
                 col1, col2, col3, col4, col5 = st.columns(5)
                 
@@ -333,72 +335,83 @@ def main():
                     st.metric("Avg Volume", f"{avg_volume:,.0f}")
                 
                 with col5:
-                    volatility = df_wti['Close'].pct_change().std() * np.sqrt(252) * 100
-                    st.metric("Volatility", f"{volatility:.1f}%")
+                    # Calculate volatility safely
+                    if len(df_wti['Close'].dropna()) > 1:
+                        volatility = df_wti['Close'].pct_change().std() * np.sqrt(252) * 100
+                        st.metric("Volatility", f"{volatility:.1f}%")
+                    else:
+                        st.metric("Volatility", "N/A")
                 
                 # Price chart
-                fig_price = go.Figure()
-                
-                fig_price.add_trace(go.Scatter(
-                    x=df_wti['Date'],
-                    y=df_wti['Close'],
-                    mode='lines',
-                    name='WTI Close Price',
-                    line=dict(color='blue', width=2),
-                    hovertemplate='<b>%{x}</b><br>Price: $%{y:.2f}<extra></extra>'
-                ))
-                
-                fig_price.update_layout(
-                    title='WTI Crude Oil Front Month Price',
-                    xaxis_title='Date',
-                    yaxis_title='Price ($)',
-                    hovermode='x unified',
-                    height=500
-                )
-                
-                st.plotly_chart(fig_price, use_container_width=True)
+                if 'Close' in df_wti.columns and not df_wti['Close'].isna().all():
+                    fig_price = go.Figure()
+                    
+                    fig_price.add_trace(go.Scatter(
+                        x=df_wti['Date'],
+                        y=df_wti['Close'],
+                        mode='lines',
+                        name='WTI Close Price',
+                        line=dict(color='blue', width=2),
+                        hovertemplate='<b>%{x}</b><br>Price: $%{y:.2f}<extra></extra>'
+                    ))
+                    
+                    fig_price.update_layout(
+                        title='WTI Crude Oil Front Month Price',
+                        xaxis_title='Date',
+                        yaxis_title='Price ($)',
+                        hovermode='x unified',
+                        height=500
+                    )
+                    
+                    st.plotly_chart(fig_price, use_container_width=True)
                 
                 # Volume chart
-                fig_volume = px.bar(df_wti,
-                                   x='Date',
-                                   y='Volume',
-                                   title='WTI Trading Volume',
-                                   color='Volume',
-                                   color_continuous_scale='blues')
-                
-                fig_volume.update_layout(height=400)
-                st.plotly_chart(fig_volume, use_container_width=True)
+                if 'Volume' in df_wti.columns and not df_wti['Volume'].isna().all():
+                    fig_volume = px.bar(df_wti,
+                                       x='Date',
+                                       y='Volume',
+                                       title='WTI Trading Volume',
+                                       color='Volume',
+                                       color_continuous_scale='blues')
+                    
+                    fig_volume.update_layout(height=400)
+                    st.plotly_chart(fig_volume, use_container_width=True)
                 
                 # OHLC Candlestick chart
-                fig_candlestick = go.Figure(data=go.Candlestick(
-                    x=df_wti['Date'],
-                    open=df_wti['Open'],
-                    high=df_wti['High'],
-                    low=df_wti['Low'],
-                    close=df_wti['Close'],
-                    name='WTI OHLC'
-                ))
-                
-                fig_candlestick.update_layout(
-                    title='WTI Crude Oil Candlestick Chart',
-                    xaxis_title='Date',
-                    yaxis_title='Price ($)',
-                    height=500,
-                    xaxis_rangeslider_visible=False
-                )
-                
-                st.plotly_chart(fig_candlestick, use_container_width=True)
+                required_cols = ['Open', 'High', 'Low', 'Close']
+                if all(col in df_wti.columns for col in required_cols) and not df_wti[required_cols].isna().all().any():
+                    fig_candlestick = go.Figure(data=go.Candlestick(
+                        x=df_wti['Date'],
+                        open=df_wti['Open'],
+                        high=df_wti['High'],
+                        low=df_wti['Low'],
+                        close=df_wti['Close'],
+                        name='WTI OHLC'
+                    ))
+                    
+                    fig_candlestick.update_layout(
+                        title='WTI Crude Oil Candlestick Chart',
+                        xaxis_title='Date',
+                        yaxis_title='Price ($)',
+                        height=500,
+                        xaxis_rangeslider_visible=False
+                    )
+                    
+                    st.plotly_chart(fig_candlestick, use_container_width=True)
                 
                 # Data table
                 st.subheader("Recent Data")
                 display_wti = df_wti.tail(10).copy()
-                display_wti['Date'] = display_wti['Date'].dt.strftime('%Y-%m-%d')
+                if 'Date' in display_wti.columns:
+                    display_wti['Date'] = display_wti['Date'].dt.strftime('%Y-%m-%d')
                 display_wti = display_wti.round(2)
                 st.dataframe(display_wti, use_container_width=True, hide_index=True)
                 
                 # Store in session state
                 st.session_state['wti_data'] = df_wti
                 
+                else:
+                    st.warning("Data loaded but missing required price columns. Please try a different date range.")
             else:
                 st.error("Failed to load WTI data. Please check your internet connection and try again.")
         
