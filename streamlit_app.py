@@ -685,89 +685,70 @@ def main():
 
     # === TAB 4: 3D Plot ===
     with tab4:
-        st.subheader("3D Options Visualization")
+        st.subheader("3D Options Visualization (All 10 Contracts)")
 
-        if f'options_data_{selected_contract}' in st.session_state:
-            calls_df, puts_df = st.session_state[f'options_data_{selected_contract}']
+        # Collect all cached contracts (first 10 pulled earlier)
+        cached_contracts = [c for c in merged_df['Contract'].head(10).tolist() 
+                            if f'options_data_{c}' in st.session_state]
 
-            combined_df = pd.concat([
-                calls_df.assign(optionType="Call", Contract=selected_contract),
-                puts_df.assign(optionType="Put", Contract=selected_contract)
-            ], ignore_index=True)
+        if cached_contracts:
+            all_data = []
+            for contract in cached_contracts:
+                calls_df, puts_df = st.session_state[f'options_data_{contract}']
+                if not calls_df.empty:
+                    all_data.append(calls_df.assign(optionType="Call", Contract=contract))
+                if not puts_df.empty:
+                    all_data.append(puts_df.assign(optionType="Put", Contract=contract))
 
-            if all(col in combined_df.columns for col in ['strike', 'lastPrice', 'Contract']):
-                st.info("Showing 3D plot of Premium vs. Contract vs. Strike Price")
+            if all_data:
+                combined_df = pd.concat(all_data, ignore_index=True)
 
-                fig = px.scatter_3d(
-                    combined_df,
-                    x="Contract",
-                    y="strike",
-                    z="lastPrice",
-                    color="optionType",
-                    symbol="optionType",
-                    size="lastPrice",
-                    hover_data=["bidPrice", "askPrice", "volume", "openInterest"]
+                # Filter toggle
+                option_filter = st.radio(
+                    "Select Option Type:",
+                    options=["Both", "Calls Only", "Puts Only"],
+                    horizontal=True
                 )
 
-                fig.update_traces(marker=dict(opacity=0.8))
-                fig.update_layout(
-                    scene=dict(
-                        xaxis_title="Contract",
-                        yaxis_title="Strike Price",
-                        zaxis_title="Premium (Last Price)"
-                    ),
-                    legend_title="Option Type",
-                    margin=dict(l=0, r=0, b=0, t=40)
-                )
+                if option_filter == "Calls Only":
+                    filtered_df = combined_df[combined_df["optionType"] == "Call"]
+                elif option_filter == "Puts Only":
+                    filtered_df = combined_df[combined_df["optionType"] == "Put"]
+                else:
+                    filtered_df = combined_df
 
-                st.plotly_chart(fig, use_container_width=True)
+                if not filtered_df.empty and all(col in filtered_df.columns for col in ['strike', 'lastPrice', 'Contract']):
+                    st.info("Interactive 3D plot of Premium vs. Contract vs. Strike Price")
+
+                    fig = px.scatter_3d(
+                        filtered_df,
+                        x="Contract",
+                        y="strike",
+                        z="lastPrice",
+                        color="optionType",
+                        symbol="optionType",
+                        size="lastPrice",
+                        hover_data=["bidPrice", "askPrice", "volume", "openInterest"]
+                    )
+
+                    fig.update_traces(marker=dict(opacity=0.8))
+                    fig.update_layout(
+                        scene=dict(
+                            xaxis_title="Contract",
+                            yaxis_title="Strike Price",
+                            zaxis_title="Premium (Last Price)"
+                        ),
+                        legend_title="Option Type",
+                        margin=dict(l=0, r=0, b=0, t=40)
+                    )
+
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Not enough data available for 3D visualization.")
             else:
-                st.warning("Not enough data available for 3D visualization.")
+                st.warning("No options data available for visualization.")
         else:
             st.warning("Please wait for the initial contracts data to load.")
-        st.subheader("3D Options Visualization")
-
-        # Check if options data is available (cached or fetched)
-        if f'options_data_{selected_contract}' in st.session_state:
-            calls_df, puts_df = st.session_state[f'options_data_{selected_contract}']
-
-            # Merge calls and puts for visualization
-            combined_df = pd.concat([
-                calls_df.assign(optionType="Call"),
-                puts_df.assign(optionType="Put")
-            ], ignore_index=True)
-
-            # Ensure necessary columns exist
-            if all(col in combined_df.columns for col in ['strike', 'lastPrice', 'Contract']):
-                st.info("Showing 3D plot of Premium vs. Contract vs. Strike Price")
-
-                fig = px.scatter_3d(
-                    combined_df,
-                    x="Contract",           # categorical
-                    y="strike",             # strike price
-                    z="lastPrice",          # premium
-                    color="optionType",     # differentiate Calls vs Puts
-                    symbol="optionType",
-                    size="lastPrice",       # bubble size based on premium
-                    hover_data=["bidPrice", "askPrice", "volume", "openInterest"]
-                )
-
-                fig.update_traces(marker=dict(opacity=0.8))
-                fig.update_layout(
-                    scene=dict(
-                        xaxis_title="Contract",
-                        yaxis_title="Strike Price",
-                        zaxis_title="Premium (Last Price)"
-                    ),
-                    legend_title="Option Type",
-                    margin=dict(l=0, r=0, b=0, t=40)
-                )
-
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Not enough data available for 3D visualization.")
-        else:
-            st.warning("Please fetch options data first to view the 3D plot.")
 
     # Auto-refresh logic
     if auto_refresh:
