@@ -742,8 +742,7 @@ def main():
                 # Store in session state
                 st.session_state['wti_data'] = df_wti
                 
-            else:
-                st.error("Failed to load WTI data. Please try again.")
+
         
         # Show cached data if available
         elif 'wti_data' in st.session_state:
