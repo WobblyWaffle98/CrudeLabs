@@ -298,7 +298,7 @@ def main():
         merged_df['Futures Implied Volatility'] = 0
 
     # Create tabs
-    tab1, tab2, tab3 = st.tabs(["Futures Curve with Options", "Front Month Data", "Options Prices"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Futures Curve with Options", "Front Month Data", "Options Prices", "3D Options Surface"])
     
     with tab1:
         st.subheader("Futures Curve with Options Data")
@@ -742,7 +742,6 @@ def main():
                 # Store in session state
                 st.session_state['wti_data'] = df_wti
                 
-
         
         # Show cached data if available
         elif 'wti_data' in st.session_state:
