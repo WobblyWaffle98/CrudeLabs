@@ -889,6 +889,51 @@ def main():
                     
                     st.plotly_chart(fig_rebased, width='stretch')
     
+    with tab4:
+        st.subheader("3D Options Visualization")
+
+        # Check if options data is available (cached or fetched)
+        if f'options_data_{selected_contract}' in st.session_state:
+            calls_df, puts_df = st.session_state[f'options_data_{selected_contract}']
+
+            # Merge calls and puts for visualization
+            combined_df = pd.concat([
+                calls_df.assign(optionType="Call"),
+                puts_df.assign(optionType="Put")
+            ], ignore_index=True)
+
+            # Ensure necessary columns exist
+            if all(col in combined_df.columns for col in ['strike', 'lastPrice', 'Contract']):
+                st.info("Showing 3D plot of Premium vs. Contract vs. Strike Price")
+
+                fig = px.scatter_3d(
+                    combined_df,
+                    x="Contract",           # categorical
+                    y="strike",             # strike price
+                    z="lastPrice",          # premium
+                    color="optionType",     # differentiate Calls vs Puts
+                    symbol="optionType",
+                    size="lastPrice",       # bubble size based on premium
+                    hover_data=["bidPrice", "askPrice", "volume", "openInterest"]
+                )
+
+                fig.update_traces(marker=dict(opacity=0.8))
+                fig.update_layout(
+                    scene=dict(
+                        xaxis_title="Contract",
+                        yaxis_title="Strike Price",
+                        zaxis_title="Premium (Last Price)"
+                    ),
+                    legend_title="Option Type",
+                    margin=dict(l=0, r=0, b=0, t=40)
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Not enough data available for 3D visualization.")
+        else:
+            st.warning("Please fetch options data first to view the 3D plot.")
+
     # Auto-refresh logic
     if auto_refresh:
         time.sleep(30)
