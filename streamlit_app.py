@@ -296,6 +296,28 @@ def main():
         merged_df['Expiration Date'] = 'N/A'
         merged_df['Options Days to Expiry'] = 0
         merged_df['Futures Implied Volatility'] = 0
+    
+    # === Fetch first 10 contracts automatically at startup ===
+    if "initial_options_data" not in st.session_state:
+        if not merged_df.empty:
+            initial_contracts = merged_df['Contract'].head(10).tolist()
+
+            with st.spinner("Fetching options data for the first 10 contracts..."):
+                options_data = fetch_detailed_options_data(initial_contracts)
+
+            # Store all contracts data in session_state
+            for contract in initial_contracts:
+                if options_data and contract in options_data:
+                    st.session_state[f'options_data_{contract}'] = options_data[contract]
+
+            # Auto-select the first contract
+            if initial_contracts:
+                st.session_state["selected_contract"] = initial_contracts[0]
+
+            st.session_state["initial_options_data"] = True
+            st.success("Fetched options data for the first 10 contracts ✅")
+        else:
+            st.warning("No contracts available to fetch initially.")
 
     # Create tabs
     tab1, tab2, tab3, tab4 = st.tabs(["Futures Curve with Options", "Front Month Data", "Options Prices", "3D Options Surface"])
@@ -587,309 +609,122 @@ def main():
 
     with tab3:
         st.subheader("Options Prices")
-        
-        # Contract selector for options
+
+        # Dropdown with auto-selected first contract
         selected_contract = st.selectbox(
             "Select contract for options data:",
             options=merged_df['Contract'].tolist() if not merged_df.empty else [],
-            index=0,
+            index=0 if not merged_df.empty else None,
             key="options_contract_selector"
         )
-        
-        # Fetch options data button
-        if st.button("Fetch Options Data", type="primary"):
-            if selected_contract:
-                with st.spinner(f"Fetching options data for {selected_contract}..."):
-                    options_data = fetch_detailed_options_data([selected_contract])
-                
-                if options_data and selected_contract in options_data:
-                    calls_df, puts_df = options_data[selected_contract]
-                    
-                    if not calls_df.empty and not puts_df.empty:
-                        st.success(f"Successfully fetched options data for {selected_contract}")
-                        
-                        # Display calls and puts side by side
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.subheader(f"📈 Calls - {selected_contract}")
-                            
-                            # Format calls dataframe for display
-                            display_calls = calls_df.copy()
-                            columns_to_show = ['strike', 'lastPrice', 'priceChange', 'bidPrice', 'askPrice', 'volume', 'openInterest']
-                            
-                            if all(col in display_calls.columns for col in columns_to_show):
-                                display_calls = display_calls[columns_to_show]
-                                display_calls.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
-                                
-                                # Format numeric columns
-                                for col in ['Last Price', 'Change', 'Bid', 'Ask']:
-                                    if col in display_calls.columns:
-                                        display_calls[col] = display_calls[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
-                                
-                                for col in ['Volume', 'Open Interest']:
-                                    if col in display_calls.columns:
-                                        display_calls[col] = display_calls[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
-                                
-                                st.dataframe(display_calls, width='stretch', hide_index=True)
-                            else:
-                                st.dataframe(calls_df, width='stretch')
-                        
-                        with col2:
-                            st.subheader(f"📉 Puts - {selected_contract}")
-                            
-                            # Format puts dataframe for display
-                            display_puts = puts_df.copy()
-                            
-                            if all(col in display_puts.columns for col in columns_to_show):
-                                display_puts = display_puts[columns_to_show]
-                                display_puts.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
-                                
-                                # Format numeric columns
-                                for col in ['Last Price', 'Change', 'Bid', 'Ask']:
-                                    if col in display_puts.columns:
-                                        display_puts[col] = display_puts[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
-                                
-                                for col in ['Volume', 'Open Interest']:
-                                    if col in display_puts.columns:
-                                        display_puts[col] = display_puts[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
-                                
-                                st.dataframe(display_puts, width='stretch', hide_index=True)
-                            else:
-                                st.dataframe(puts_df, width='stretch')
-                        
-                        # Summary statistics
-                        st.subheader("Options Summary")
-                        
-                        col1, col2, col3, col4 = st.columns(4)
-                        
-                        with col1:
-                            total_call_volume = calls_df['volume'].sum() if 'volume' in calls_df.columns else 0
-                            st.metric("Total Call Volume", f"{total_call_volume:,}")
-                        
-                        with col2:
-                            total_put_volume = puts_df['volume'].sum() if 'volume' in puts_df.columns else 0
-                            st.metric("Total Put Volume", f"{total_put_volume:,}")
-                        
-                        with col3:
-                            call_put_ratio = total_call_volume / total_put_volume if total_put_volume > 0 else 0
-                            st.metric("Call/Put Ratio", f"{call_put_ratio:.2f}")
-                        
-                        with col4:
-                            total_options = len(calls_df) + len(puts_df)
-                            st.metric("Total Options", f"{total_options}")
-                        
-                        # Store in session state
-                        st.session_state[f'options_data_{selected_contract}'] = options_data[selected_contract]
-                        
-                    else:
-                        st.warning(f"No options data available for {selected_contract}")
-                else:
-                    st.error(f"Failed to fetch options data for {selected_contract}")
-            else:
-                st.warning("Please select a contract first")
-        
-        # Show cached options data if available
-        elif f'options_data_{selected_contract}' in st.session_state:
-            st.info(f"Showing cached options data for {selected_contract}. Click 'Fetch Options Data' to refresh.")
-            
+
+        if f'options_data_{selected_contract}' in st.session_state:
             calls_df, puts_df = st.session_state[f'options_data_{selected_contract}']
-            
-            # Display cached data (same format as above)
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader(f"📈 Calls - {selected_contract} (Cached)")
-                display_calls = calls_df.copy()
-                columns_to_show = ['strike', 'lastPrice', 'priceChange', 'bidPrice', 'askPrice', 'volume', 'openInterest']
-                
-                if all(col in display_calls.columns for col in columns_to_show):
-                    display_calls = display_calls[columns_to_show]
-                    display_calls.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
-                    
-                    for col in ['Last Price', 'Change', 'Bid', 'Ask']:
-                        if col in display_calls.columns:
-                            display_calls[col] = display_calls[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
-                    
-                    for col in ['Volume', 'Open Interest']:
-                        if col in display_calls.columns:
-                            display_calls[col] = display_calls[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
-                    
-                    st.dataframe(display_calls, width='stretch', hide_index=True)
-                else:
-                    st.dataframe(calls_df, width='stretch')
-            
-            with col2:
-                st.subheader(f"📉 Puts - {selected_contract} (Cached)")
-                display_puts = puts_df.copy()
-                
-                if all(col in display_puts.columns for col in columns_to_show):
-                    display_puts = display_puts[columns_to_show]
-                    display_puts.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
-                    
-                    for col in ['Last Price', 'Change', 'Bid', 'Ask']:
-                        if col in display_puts.columns:
-                            display_puts[col] = display_puts[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
-                    
-                    for col in ['Volume', 'Open Interest']:
-                        if col in display_puts.columns:
-                            display_puts[col] = display_puts[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
-                    
-                    st.dataframe(display_puts, width='stretch', hide_index=True)
-                else:
-                    st.dataframe(puts_df, width='stretch')
-                
-                # Store in session state
-                st.session_state['wti_data'] = df_wti
-                
-        
-        # Show cached data if available
-        elif 'wti_data' in st.session_state:
-            st.info("Showing previously loaded data. Click 'Load WTI Data' to refresh.")
-            df_wti = st.session_state['wti_data']
-            
-            if not df_wti.empty and 'Close' in df_wti.columns:
-                # Show metrics for cached data too
-                latest_price = df_wti['Close'].dropna().iloc[-1] if not df_wti['Close'].dropna().empty else 0
-                latest_date = df_wti['Date'].iloc[-1].strftime('%Y-%m-%d') if not df_wti.empty else "N/A"
-                price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[-2]) if len(df_wti['Close'].dropna()) > 1 else 0
-                
-                # 52-week high/low calculation
-                trading_days_52w = min(252, len(df_wti))
-                recent_52w = df_wti.tail(trading_days_52w)
-                high_52w = recent_52w['High'].max() if 'High' in df_wti.columns else latest_price
-                low_52w = recent_52w['Low'].min() if 'Low' in df_wti.columns else latest_price
-                
-                avg_volume = df_wti['Volume'].mean() if 'Volume' in df_wti.columns and df_wti['Volume'].notna().any() else 0
-                
-                # Volatility calculations
-                volatility_1m = volatility_3m = volatility_1y = 0
-                
-                if len(df_wti['Close'].dropna()) > 1:
-                    if len(df_wti) >= 21:
-                        volatility_1m = df_wti['Close'].tail(21).pct_change().std() * np.sqrt(252) * 100
-                    if len(df_wti) >= 63:
-                        volatility_3m = df_wti['Close'].tail(63).pct_change().std() * np.sqrt(252) * 100
-                    trading_days_1y = min(252, len(df_wti))
-                    volatility_1y = df_wti['Close'].tail(trading_days_1y).pct_change().std() * np.sqrt(252) * 100
-                
-                # Display metrics
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric("Last Closing Price", f"${latest_price:.2f}", delta=f"{price_change:+.2f}")
-                    st.caption(f"Date: {latest_date}")
-                
-                with col2:
-                    st.metric("52W High", f"${high_52w:.2f}")
-                
-                with col3:
-                    st.metric("52W Low", f"${low_52w:.2f}")
-                
-                with col4:
-                    st.metric("Avg Volume", f"{avg_volume:,.0f}")
-                
-                # Volatility row
-                col5, col6, col7, col8 = st.columns(4)
-                
-                with col5:
-                    st.metric("1M Volatility", f"{volatility_1m:.1f}%")
-                
-                with col6:
-                    st.metric("3M Volatility", f"{volatility_3m:.1f}%")
-                
-                with col7:
-                    st.metric("1Y Volatility", f"{volatility_1y:.1f}%")
-                
-                with col8:
-                    st.metric("", "")
-                
-                # Create all four charts for cached data
-                st.subheader("WTI Price Analysis")
-                
-                current_year = datetime.datetime.now().year
-                ytd_start = datetime.datetime(current_year, 1, 1)
-                
-                chart_3m = df_wti.tail(min(63, len(df_wti)))
-                chart_ytd = df_wti[df_wti['Date'] >= ytd_start]
-                chart_full = df_wti
-                
-                # Prepare rebased data
-                df_rebased = df_wti.copy()
-                df_rebased['Year'] = df_rebased['Date'].dt.year
-                df_rebased['DayOfYear'] = df_rebased['Date'].dt.dayofyear
-                
-                def rebase(series):
-                    if len(series) > 0:
-                        return (series / series.iloc[0]) * 100
-                    return series
-                
-                df_rebased['Rebased'] = df_rebased.groupby('Year')['Close'].transform(rebase)
-                
-                # 2x2 grid
+
+            if not calls_df.empty and not puts_df.empty:
+                # Display Calls and Puts side by side
                 col1, col2 = st.columns(2)
-                
+
+                columns_to_show = ['strike', 'lastPrice', 'priceChange', 'bidPrice', 'askPrice', 'volume', 'openInterest']
+
                 with col1:
-                    fig_3m = px.line(chart_3m, x='Date', y='Close', title='WTI - Last 3 Months (Cached)')
-                    fig_3m.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_3m, width='stretch')
-                
+                    st.subheader(f"📈 Calls - {selected_contract}")
+                    display_calls = calls_df.copy()
+                    if all(col in display_calls.columns for col in columns_to_show):
+                        display_calls = display_calls[columns_to_show]
+                        display_calls.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
+
+                        for col in ['Last Price', 'Change', 'Bid', 'Ask']:
+                            display_calls[col] = display_calls[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
+                        for col in ['Volume', 'Open Interest']:
+                            display_calls[col] = display_calls[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
+
+                        st.dataframe(display_calls, width='stretch', hide_index=True)
+                    else:
+                        st.dataframe(calls_df, width='stretch')
+
                 with col2:
-                    fig_ytd = px.line(chart_ytd, x='Date', y='Close', title=f'WTI - YTD {current_year} (Cached)')
-                    fig_ytd.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_ytd, width='stretch')
-                
-                col3, col4 = st.columns(2)
-                
+                    st.subheader(f"📉 Puts - {selected_contract}")
+                    display_puts = puts_df.copy()
+                    if all(col in display_puts.columns for col in columns_to_show):
+                        display_puts = display_puts[columns_to_show]
+                        display_puts.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
+
+                        for col in ['Last Price', 'Change', 'Bid', 'Ask']:
+                            display_puts[col] = display_puts[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
+                        for col in ['Volume', 'Open Interest']:
+                            display_puts[col] = display_puts[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
+
+                        st.dataframe(display_puts, width='stretch', hide_index=True)
+                    else:
+                        st.dataframe(puts_df, width='stretch')
+
+                # Summary stats
+                st.subheader("Options Summary")
+                col1, col2, col3, col4 = st.columns(4)
+
+                with col1:
+                    total_call_volume = calls_df['volume'].sum() if 'volume' in calls_df.columns else 0
+                    st.metric("Total Call Volume", f"{total_call_volume:,}")
+
+                with col2:
+                    total_put_volume = puts_df['volume'].sum() if 'volume' in puts_df.columns else 0
+                    st.metric("Total Put Volume", f"{total_put_volume:,}")
+
                 with col3:
-                    fig_full = px.line(chart_full, x='Date', y='Close', title='WTI - Full Period (Cached)')
-                    fig_full.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_full, width='stretch')
-                
+                    call_put_ratio = total_call_volume / total_put_volume if total_put_volume > 0 else 0
+                    st.metric("Call/Put Ratio", f"{call_put_ratio:.2f}")
+
                 with col4:
-                    # Yearly rebased chart
-                    fig_rebased = go.Figure()
-                    
-                    quarter_colors = ['#e0f3f8', '#ccebc5', '#fddbc7', '#f2f0f7']
-                    quarter_ranges = {1: (1, 90), 2: (91, 181), 3: (182, 273), 4: (274, 366)}
-                    
-                    for q, (start, end) in quarter_ranges.items():
-                        fig_rebased.add_vrect(
-                            x0=start, x1=end, fillcolor=quarter_colors[q-1],
-                            opacity=0.2, layer="below", line_width=0,
-                            annotation_text=f"Q{q}", annotation_position="top"
-                        )
-                    
-                    all_years = sorted(df_rebased['Year'].unique())
-                    highlight_years = all_years[-3:] if len(all_years) >= 3 else all_years
-                    highlight_colors = ['crimson', 'royalblue', 'darkorange']
-                    muted_color = 'lightgray'
-                    
-                    for year, group in df_rebased.groupby('Year'):
-                        if year in highlight_years and len(highlight_years) <= 3:
-                            idx = highlight_years.index(year) % len(highlight_colors)
-                            color = highlight_colors[idx]
-                            line_width = 3
-                        else:
-                            color = muted_color
-                            line_width = 1.5
-                        
-                        fig_rebased.add_trace(go.Scatter(
-                            x=group['DayOfYear'], y=group['Rebased'],
-                            mode='lines', name=str(year),
-                            line=dict(color=color, width=line_width)
-                        ))
-                    
-                    fig_rebased.update_layout(
-                        height=400, title="WTI - Yearly Rebased (Cached)",
-                        xaxis_title="Day of Year", yaxis_title="Rebased Price (first day = 100)",
-                        template="plotly_white", showlegend=True,
-                        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, font=dict(size=10))
-                    )
-                    
-                    st.plotly_chart(fig_rebased, width='stretch')
-    
+                    total_options = len(calls_df) + len(puts_df)
+                    st.metric("Total Options", f"{total_options}")
+            else:
+                st.warning(f"No options data available for {selected_contract}")
+        else:
+            st.warning("Please wait for the initial contracts data to load.")
+
+    # === TAB 4: 3D Plot ===
     with tab4:
+        st.subheader("3D Options Visualization")
+
+        if f'options_data_{selected_contract}' in st.session_state:
+            calls_df, puts_df = st.session_state[f'options_data_{selected_contract}']
+
+            combined_df = pd.concat([
+                calls_df.assign(optionType="Call", Contract=selected_contract),
+                puts_df.assign(optionType="Put", Contract=selected_contract)
+            ], ignore_index=True)
+
+            if all(col in combined_df.columns for col in ['strike', 'lastPrice', 'Contract']):
+                st.info("Showing 3D plot of Premium vs. Contract vs. Strike Price")
+
+                fig = px.scatter_3d(
+                    combined_df,
+                    x="Contract",
+                    y="strike",
+                    z="lastPrice",
+                    color="optionType",
+                    symbol="optionType",
+                    size="lastPrice",
+                    hover_data=["bidPrice", "askPrice", "volume", "openInterest"]
+                )
+
+                fig.update_traces(marker=dict(opacity=0.8))
+                fig.update_layout(
+                    scene=dict(
+                        xaxis_title="Contract",
+                        yaxis_title="Strike Price",
+                        zaxis_title="Premium (Last Price)"
+                    ),
+                    legend_title="Option Type",
+                    margin=dict(l=0, r=0, b=0, t=40)
+                )
+
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Not enough data available for 3D visualization.")
+        else:
+            st.warning("Please wait for the initial contracts data to load.")
         st.subheader("3D Options Visualization")
 
         # Check if options data is available (cached or fetched)
