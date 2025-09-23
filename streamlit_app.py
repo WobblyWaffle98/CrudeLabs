@@ -305,7 +305,7 @@ def main():
         
         # Display the merged data table
         st.dataframe(merged_df[['Contract', 'Last Price', 'Expiration Date', 'Options Days to Expiry', 'Futures Implied Volatility']], 
-                    use_container_width=True)
+                    width='stretch')
         
         # Forward curve chart with options data
         fig_curve = go.Figure()
@@ -329,7 +329,7 @@ def main():
             showlegend=True
         )
         
-        st.plotly_chart(fig_curve, use_container_width=True)
+        st.plotly_chart(fig_curve, width='stretch')
         
         # Additional charts in columns
         col1, col2 = st.columns(2)
@@ -343,7 +343,7 @@ def main():
                                  title='Days to Options Expiry',
                                  color='Options Days to Expiry',
                                  color_continuous_scale='viridis')
-                st.plotly_chart(fig_days, use_container_width=True)
+                st.plotly_chart(fig_days, width='stretch')
             else:
                 st.info("Options expiry data not available")
         
@@ -356,7 +356,7 @@ def main():
                                title='Implied Volatility (%)',
                                color='Futures Implied Volatility',
                                color_continuous_scale='RdYlBu')
-                st.plotly_chart(fig_iv, use_container_width=True)
+                st.plotly_chart(fig_iv, width='stretch')
             else:
                 st.info("Implied volatility data not available")
     
@@ -583,7 +583,7 @@ def main():
                         )
                     )
                     
-                    st.plotly_chart(fig_rebased, use_container_width=True)
+                    st.plotly_chart(fig_rebased, width='stretch')
 
     with tab3:
         st.subheader("Options Prices")
@@ -631,9 +631,9 @@ def main():
                                     if col in display_calls.columns:
                                         display_calls[col] = display_calls[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
                                 
-                                st.dataframe(display_calls, use_container_width=True, hide_index=True)
+                                st.dataframe(display_calls, width='stretch', hide_index=True)
                             else:
-                                st.dataframe(calls_df, use_container_width=True)
+                                st.dataframe(calls_df, width='stretch')
                         
                         with col2:
                             st.subheader(f"📉 Puts - {selected_contract}")
@@ -654,9 +654,9 @@ def main():
                                     if col in display_puts.columns:
                                         display_puts[col] = display_puts[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
                                 
-                                st.dataframe(display_puts, use_container_width=True, hide_index=True)
+                                st.dataframe(display_puts, width='stretch', hide_index=True)
                             else:
-                                st.dataframe(puts_df, use_container_width=True)
+                                st.dataframe(puts_df, width='stretch')
                         
                         # Summary statistics
                         st.subheader("Options Summary")
@@ -715,9 +715,9 @@ def main():
                         if col in display_calls.columns:
                             display_calls[col] = display_calls[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
                     
-                    st.dataframe(display_calls, use_container_width=True, hide_index=True)
+                    st.dataframe(display_calls, width='stretch', hide_index=True)
                 else:
-                    st.dataframe(calls_df, use_container_width=True)
+                    st.dataframe(calls_df, width='stretch')
             
             with col2:
                 st.subheader(f"📉 Puts - {selected_contract} (Cached)")
@@ -735,9 +735,9 @@ def main():
                         if col in display_puts.columns:
                             display_puts[col] = display_puts[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
                     
-                    st.dataframe(display_puts, use_container_width=True, hide_index=True)
+                    st.dataframe(display_puts, width='stretch', hide_index=True)
                 else:
-                    st.dataframe(puts_df, use_container_width=True)
+                    st.dataframe(puts_df, width='stretch')
                 
                 # Store in session state
                 st.session_state['wti_data'] = df_wti
@@ -834,19 +834,19 @@ def main():
                 with col1:
                     fig_3m = px.line(chart_3m, x='Date', y='Close', title='WTI - Last 3 Months (Cached)')
                     fig_3m.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_3m, use_container_width=True)
+                    st.plotly_chart(fig_3m, width='stretch')
                 
                 with col2:
                     fig_ytd = px.line(chart_ytd, x='Date', y='Close', title=f'WTI - YTD {current_year} (Cached)')
                     fig_ytd.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_ytd, use_container_width=True)
+                    st.plotly_chart(fig_ytd, width='stretch')
                 
                 col3, col4 = st.columns(2)
                 
                 with col3:
                     fig_full = px.line(chart_full, x='Date', y='Close', title='WTI - Full Period (Cached)')
                     fig_full.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_full, use_container_width=True)
+                    st.plotly_chart(fig_full, width='stretch')
                 
                 with col4:
                     # Yearly rebased chart
@@ -889,7 +889,7 @@ def main():
                         legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, font=dict(size=10))
                     )
                     
-                    st.plotly_chart(fig_rebased, use_container_width=True)
+                    st.plotly_chart(fig_rebased, width='stretch')
     
     # Auto-refresh logic
     if auto_refresh:
