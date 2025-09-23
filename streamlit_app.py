@@ -32,6 +32,86 @@ auto_refresh = st.sidebar.checkbox("Auto refresh (30s)", value=False)
 if st.sidebar.button("🔄 Refresh Data"):
     st.rerun()
 
+@st.cache_data(ttl=300)
+def fetch_detailed_options_data(symbols):
+    """Fetch detailed options data for given symbols using the provided method"""
+    
+    url = 'https://www.barchart.com/proxies/core-api/v1/quotes/get?'
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0",
+    }
+    
+    try:
+        with requests.Session() as req:
+            req.headers.update(headers)
+            
+            # Get XSRF token
+            r = req.get(url[:25])
+            if 'XSRF-TOKEN' in r.cookies.get_dict():
+                req.headers.update({'X-XSRF-TOKEN': unquote(r.cookies.get_dict()['XSRF-TOKEN'])})
+            
+            results = {}
+            
+            for symbol in symbols:
+                params = {
+                    "symbol": symbol,
+                    "list": "futures.options",
+                    "fields": "strike,openPrice,highPrice,lowPrice,lastPrice,priceChange,bidPrice,askPrice,volume,openInterest,premium,tradeTime,longSymbol,optionType,symbol",
+                    "orderBy": "strike",
+                    "orderDir": "asc",
+                    "meta": "field.shortName,field.description,field.type",
+                    "futureOptions": "true",
+                    "noPagination": "true",
+                    "showExpandLink": "false"
+                }
+                
+                r = req.get(url, params=params)
+                
+                if r.status_code == 200:
+                    data = r.json()
+                    
+                    if 'data' in data and data['data']:
+                        df = pd.DataFrame(data['data'])
+                        
+                        # Clean and process the data
+                        df['strike'] = df['strike'].astype(str).str.replace(r'[CP]', '', regex=True)
+                        df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0).astype(int)
+                        df['openInterest'] = pd.to_numeric(df['openInterest'], errors='coerce').fillna(0).astype(int)
+                        df['lastPrice'] = df['lastPrice'].astype(str).str.replace(r'[a-zA-Z]', '', regex=True)
+                        df['lastPrice'] = pd.to_numeric(df['lastPrice'], errors='coerce').fillna(0)
+                        
+                        # Clean other price fields
+                        for col in ['priceChange', 'bidPrice', 'askPrice']:
+                            if col in df.columns:
+                                df[col] = df[col].astype(str).str.replace(r'[a-zA-Z]', '', regex=True)
+                                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                        
+                        # Separate calls and puts
+                        calls_df = df[df['optionType'] == 'Call'].copy()
+                        puts_df = df[df['optionType'] == 'Put'].copy()
+                        
+                        # Sort by strike price
+                        calls_df['strike_num'] = pd.to_numeric(calls_df['strike'], errors='coerce')
+                        puts_df['strike_num'] = pd.to_numeric(puts_df['strike'], errors='coerce')
+                        
+                        calls_df = calls_df.sort_values('strike_num').drop('strike_num', axis=1)
+                        puts_df = puts_df.sort_values('strike_num').drop('strike_num', axis=1)
+                        
+                        results[symbol] = (calls_df, puts_df)
+                    else:
+                        results[symbol] = (pd.DataFrame(), pd.DataFrame())
+                else:
+                    st.warning(f"Failed to fetch options data for {symbol}. Status code: {r.status_code}")
+                    results[symbol] = (pd.DataFrame(), pd.DataFrame())
+            
+            return results
+            
+    except Exception as e:
+        st.error(f"Error fetching detailed options data: {str(e)}")
+        return {}
+
+
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def fetch_futures_data():
     """Fetch futures contract data from Barchart API"""
@@ -218,7 +298,7 @@ def main():
         merged_df['Futures Implied Volatility'] = 0
 
     # Create tabs
-    tab1, tab2, tab3 = st.tabs(["Futures Curve with Options", "Front Month Data", "Options Ladder"])
+    tab1, tab2, tab3 = st.tabs(["Futures Curve with Options", "Front Month Data", "Options Prices"])
     
     with tab1:
         st.subheader("Futures Curve with Options Data")
@@ -504,6 +584,160 @@ def main():
                     )
                     
                     st.plotly_chart(fig_rebased, use_container_width=True)
+
+    with tab3:
+        st.subheader("Options Prices")
+        
+        # Contract selector for options
+        selected_contract = st.selectbox(
+            "Select contract for options data:",
+            options=merged_df['Contract'].tolist() if not merged_df.empty else [],
+            index=0,
+            key="options_contract_selector"
+        )
+        
+        # Fetch options data button
+        if st.button("Fetch Options Data", type="primary"):
+            if selected_contract:
+                with st.spinner(f"Fetching options data for {selected_contract}..."):
+                    options_data = fetch_detailed_options_data([selected_contract])
+                
+                if options_data and selected_contract in options_data:
+                    calls_df, puts_df = options_data[selected_contract]
+                    
+                    if not calls_df.empty and not puts_df.empty:
+                        st.success(f"Successfully fetched options data for {selected_contract}")
+                        
+                        # Display calls and puts side by side
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.subheader(f"📈 Calls - {selected_contract}")
+                            
+                            # Format calls dataframe for display
+                            display_calls = calls_df.copy()
+                            columns_to_show = ['strike', 'lastPrice', 'priceChange', 'bidPrice', 'askPrice', 'volume', 'openInterest']
+                            
+                            if all(col in display_calls.columns for col in columns_to_show):
+                                display_calls = display_calls[columns_to_show]
+                                display_calls.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
+                                
+                                # Format numeric columns
+                                for col in ['Last Price', 'Change', 'Bid', 'Ask']:
+                                    if col in display_calls.columns:
+                                        display_calls[col] = display_calls[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
+                                
+                                for col in ['Volume', 'Open Interest']:
+                                    if col in display_calls.columns:
+                                        display_calls[col] = display_calls[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
+                                
+                                st.dataframe(display_calls, use_container_width=True, hide_index=True)
+                            else:
+                                st.dataframe(calls_df, use_container_width=True)
+                        
+                        with col2:
+                            st.subheader(f"📉 Puts - {selected_contract}")
+                            
+                            # Format puts dataframe for display
+                            display_puts = puts_df.copy()
+                            
+                            if all(col in display_puts.columns for col in columns_to_show):
+                                display_puts = display_puts[columns_to_show]
+                                display_puts.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
+                                
+                                # Format numeric columns
+                                for col in ['Last Price', 'Change', 'Bid', 'Ask']:
+                                    if col in display_puts.columns:
+                                        display_puts[col] = display_puts[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
+                                
+                                for col in ['Volume', 'Open Interest']:
+                                    if col in display_puts.columns:
+                                        display_puts[col] = display_puts[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
+                                
+                                st.dataframe(display_puts, use_container_width=True, hide_index=True)
+                            else:
+                                st.dataframe(puts_df, use_container_width=True)
+                        
+                        # Summary statistics
+                        st.subheader("Options Summary")
+                        
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            total_call_volume = calls_df['volume'].sum() if 'volume' in calls_df.columns else 0
+                            st.metric("Total Call Volume", f"{total_call_volume:,}")
+                        
+                        with col2:
+                            total_put_volume = puts_df['volume'].sum() if 'volume' in puts_df.columns else 0
+                            st.metric("Total Put Volume", f"{total_put_volume:,}")
+                        
+                        with col3:
+                            call_put_ratio = total_call_volume / total_put_volume if total_put_volume > 0 else 0
+                            st.metric("Call/Put Ratio", f"{call_put_ratio:.2f}")
+                        
+                        with col4:
+                            total_options = len(calls_df) + len(puts_df)
+                            st.metric("Total Options", f"{total_options}")
+                        
+                        # Store in session state
+                        st.session_state[f'options_data_{selected_contract}'] = options_data[selected_contract]
+                        
+                    else:
+                        st.warning(f"No options data available for {selected_contract}")
+                else:
+                    st.error(f"Failed to fetch options data for {selected_contract}")
+            else:
+                st.warning("Please select a contract first")
+        
+        # Show cached options data if available
+        elif f'options_data_{selected_contract}' in st.session_state:
+            st.info(f"Showing cached options data for {selected_contract}. Click 'Fetch Options Data' to refresh.")
+            
+            calls_df, puts_df = st.session_state[f'options_data_{selected_contract}']
+            
+            # Display cached data (same format as above)
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader(f"📈 Calls - {selected_contract} (Cached)")
+                display_calls = calls_df.copy()
+                columns_to_show = ['strike', 'lastPrice', 'priceChange', 'bidPrice', 'askPrice', 'volume', 'openInterest']
+                
+                if all(col in display_calls.columns for col in columns_to_show):
+                    display_calls = display_calls[columns_to_show]
+                    display_calls.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
+                    
+                    for col in ['Last Price', 'Change', 'Bid', 'Ask']:
+                        if col in display_calls.columns:
+                            display_calls[col] = display_calls[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
+                    
+                    for col in ['Volume', 'Open Interest']:
+                        if col in display_calls.columns:
+                            display_calls[col] = display_calls[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
+                    
+                    st.dataframe(display_calls, use_container_width=True, hide_index=True)
+                else:
+                    st.dataframe(calls_df, use_container_width=True)
+            
+            with col2:
+                st.subheader(f"📉 Puts - {selected_contract} (Cached)")
+                display_puts = puts_df.copy()
+                
+                if all(col in display_puts.columns for col in columns_to_show):
+                    display_puts = display_puts[columns_to_show]
+                    display_puts.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
+                    
+                    for col in ['Last Price', 'Change', 'Bid', 'Ask']:
+                        if col in display_puts.columns:
+                            display_puts[col] = display_puts[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
+                    
+                    for col in ['Volume', 'Open Interest']:
+                        if col in display_puts.columns:
+                            display_puts[col] = display_puts[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
+                    
+                    st.dataframe(display_puts, use_container_width=True, hide_index=True)
+                else:
+                    st.dataframe(puts_df, use_container_width=True)
                 
                 # Store in session state
                 st.session_state['wti_data'] = df_wti
