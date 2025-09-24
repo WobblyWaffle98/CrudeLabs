@@ -604,6 +604,8 @@ def main():
             
             if f'options_data_{selected_contract}' in st.session_state:
                 calls_df, puts_df = st.session_state[f'options_data_{selected_contract}']
+                # Contract overview
+                contract_data = merged_df[merged_df['Contract'] == selected_contract].iloc[0]
                 
                 # Calculate options flow metrics
                 flow_metrics = analyze_options_flow(calls_df, puts_df)
