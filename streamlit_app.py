@@ -834,7 +834,7 @@ def main():
                             
                             # Cap y-axis to max premium = 5
                             fig_chain.update_layout(
-                                title=f"Options Chain - {selected_contract} (Bubble size = Standard, Excluding 0 Premium)",
+                                title=f"Options Chain - {selected_contract} ",
                                 xaxis_title="Strike Price ($)",
                                 yaxis_title="Option Price ($)",
                                 yaxis=dict(range=[0, 5]),
