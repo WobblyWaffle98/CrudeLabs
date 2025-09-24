@@ -638,6 +638,16 @@ def main():
                 
                 # Options chain visualization
                 if not calls_df.empty and not puts_df.empty:
+
+                    
+                    # Ensure strike is numeric
+                    calls_df['strike'] = pd.to_numeric(calls_df['strike'], errors='coerce')
+                    puts_df['strike'] = pd.to_numeric(puts_df['strike'], errors='coerce')
+
+                    # Drop any rows where strike couldn't be converted
+                    calls_df = calls_df.dropna(subset=['strike'])
+                    puts_df = puts_df.dropna(subset=['strike'])
+
                     # Get ATM price
                     underlying_price = merged_df[merged_df['Contract'] == selected_contract]['Last Price'].iloc[0]
 
@@ -647,6 +657,7 @@ def main():
 
                     calls_near_atm = calls_df[(calls_df['strike'] >= lower_bound) & (calls_df['strike'] <= upper_bound)]
                     puts_near_atm = puts_df[(puts_df['strike'] >= lower_bound) & (puts_df['strike'] <= upper_bound)]
+
 
                     # Enhanced options chain chart
                     fig_options = make_subplots(
