@@ -1589,7 +1589,7 @@ def main():
         # Auto-refresh for open positions
         trades_df = get_trades()
         if not trades_df.empty:
-        open_count = len(trades_df[trades_df.get('status', '') == 'Open']) if 'status' in trades_df.columns else 0
+            open_count = len(trades_df[trades_df.get('status', '') == 'Open']) if 'status' in trades_df.columns else 0
         if open_count > 0:
             auto_update = st.checkbox(f"Auto-update open positions ({open_count} open)", value=False)
             if auto_update:
