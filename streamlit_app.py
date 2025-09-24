@@ -797,7 +797,7 @@ def main():
         else:
             st.warning("Please wait for the initial contracts data to load.")
 
-    # === TAB 5: Enhanced Trade Ledger ===
+# === TAB 5: Enhanced Trade Ledger ===
     with tab5:
         st.subheader("📊 Enhanced Trade Ledger")
 
@@ -881,71 +881,83 @@ def main():
             # Get and display trades
             trades_df = get_trades()
             
-        
-            
             if not trades_df.empty:
-                # Then try formatted display
-                st.subheader("Formatted Display")
+                # Define the columns you want to display
+                desired_columns = [
+                    'trade_no', 'trade_date', 'underlying', 'expiration_date', 'days_to_expiry',
+                    'option_type', 'direction', 'strike_price', 'contracts', 'entry_price',
+                    'commission', 'status', 'entry_timestamp', 'current_price',
+                    'unrealized_pnl', 'final_pnl', 'close_date', 'close_price', 'notes'
+                ]
                 
-                # Calculate additional metrics only if we have the required columns
-                trades_display = trades_df.copy()
+                # Create a display dataframe with only existing columns
+                display_df = trades_df.copy()
                 
-                # Only calculate additional fields if the base columns exist
-                if 'expiration_date' in trades_display.columns and 'status' in trades_display.columns:
-                    try:
-                        trades_display['current_days_to_expiry'] = trades_display.apply(
-                            lambda row: calculate_days_to_expiry(row['expiration_date']) 
-                            if row.get('status') == 'Open' else None, axis=1
+                # Filter to only include columns that exist in the dataframe
+                available_columns = [col for col in desired_columns if col in display_df.columns]
+                
+                if available_columns:
+                    display_df = display_df[available_columns]
+                    
+                    # Format specific columns for better display
+                    if 'entry_price' in display_df.columns:
+                        display_df['entry_price'] = display_df['entry_price'].apply(
+                            lambda x: f"${x:.3f}" if pd.notna(x) else "N/A"
                         )
-                    except Exception as e:
-                        st.warning(f"Could not calculate days to expiry: {e}")
-                
-                # Format price columns if they exist
-                for col, formatted_col in [('entry_price', 'entry_price_formatted'), 
-                                        ('current_price', 'current_price_formatted')]:
-                    if col in trades_display.columns:
-                        try:
-                            trades_display[formatted_col] = trades_display[col].apply(
-                                lambda x: f"${x:.3f}" if pd.notna(x) and x != 0 else "N/A"
-                            )
-                        except Exception as e:
-                            st.warning(f"Could not format {col}: {e}")
-                
-                # Format P&L columns if they exist
-                for col, formatted_col in [('unrealized_pnl', 'unrealized_pnl_formatted'),
-                                        ('final_pnl', 'final_pnl_formatted')]:
-                    if col in trades_display.columns:
-                        try:
-                            trades_display[formatted_col] = trades_display[col].apply(
-                                lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A"
-                            )
-                        except Exception as e:
-                            st.warning(f"Could not format {col}: {e}")
-                
-                # Build display columns list based on what's available
-                display_cols = []
-                base_cols = ['trade_no', 'trade_date', 'underlying', 'option_type', 'direction', 'strike_price']
-                
-                for col in base_cols:
-                    if col in trades_display.columns:
-                        display_cols.append(col)
-                
-                # Add formatted columns if available
-                optional_cols = ['entry_price_formatted', 'status', 'current_price_formatted', 
-                            'current_days_to_expiry', 'unrealized_pnl_formatted', 'final_pnl_formatted']
-                
-                for col in optional_cols:
-                    if col in trades_display.columns:
-                        display_cols.append(col)
-                
-                if display_cols:
+                    
+                    if 'current_price' in display_df.columns:
+                        display_df['current_price'] = display_df['current_price'].apply(
+                            lambda x: f"${x:.3f}" if pd.notna(x) and x != 0 else "N/A"
+                        )
+                    
+                    if 'close_price' in display_df.columns:
+                        display_df['close_price'] = display_df['close_price'].apply(
+                            lambda x: f"${x:.3f}" if pd.notna(x) and x != 0 else "N/A"
+                        )
+                    
+                    if 'strike_price' in display_df.columns:
+                        display_df['strike_price'] = display_df['strike_price'].apply(
+                            lambda x: f"${x:.2f}" if pd.notna(x) else "N/A"
+                        )
+                    
+                    if 'unrealized_pnl' in display_df.columns:
+                        display_df['unrealized_pnl'] = display_df['unrealized_pnl'].apply(
+                            lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A"
+                        )
+                    
+                    if 'final_pnl' in display_df.columns:
+                        display_df['final_pnl'] = display_df['final_pnl'].apply(
+                            lambda x: f"${x:,.2f}" if pd.notna(x) else "N/A"
+                        )
+                    
+                    if 'commission' in display_df.columns:
+                        display_df['commission'] = display_df['commission'].apply(
+                            lambda x: f"${x:.2f}" if pd.notna(x) else "N/A"
+                        )
+                    
+                    # Calculate current days to expiry for open trades
+                    if 'expiration_date' in display_df.columns and 'status' in display_df.columns:
+                        def calc_current_days(row):
+                            if row.get('status') == 'Open' and pd.notna(row.get('expiration_date')):
+                                try:
+                                    return calculate_days_to_expiry(row['expiration_date'])
+                                except:
+                                    return None
+                            return None
+                        
+                        display_df['current_days_to_expiry'] = trades_df.apply(calc_current_days, axis=1)
+                    
+                    # Display the formatted dataframe
                     st.dataframe(
-                        trades_display[display_cols],
+                        display_df,
                         use_container_width=True,
                         hide_index=True
                     )
                 else:
-                    st.warning("No suitable columns found for display")
+                    st.warning("No valid columns found in the trades data")
+                    # Show raw data as fallback
+                    st.subheader("Raw Data")
+                    st.dataframe(trades_df, use_container_width=True, hide_index=True)
                 
                 # Summary metrics
                 col1, col2, col3, col4 = st.columns(4)
@@ -963,8 +975,14 @@ def main():
                     st.metric("Closed Trades", closed_trades)
                 
                 with col4:
-                    total_pnl = trades_df['final_pnl'].sum() if 'final_pnl' in trades_df.columns else 0
+                    total_pnl = trades_df['final_pnl'].sum() if 'final_pnl' in trades_df.columns and trades_df['final_pnl'].notna().any() else 0
                     st.metric("Total Realized P&L", f"${total_pnl:,.2f}")
+                
+                # Show column information for debugging
+                with st.expander("Debug: Available Columns"):
+                    st.write("Columns in dataframe:", list(trades_df.columns))
+                    st.write("Desired columns:", desired_columns)
+                    st.write("Available desired columns:", available_columns)
                     
             else:
                 st.info("No trades found. Add your first trade in the 'New Trade' tab.")
@@ -1015,6 +1033,9 @@ def main():
                     entry_price = st.number_input("Entry Price (per contract)", step=0.001, format="%.3f")
                     commission = st.number_input("Commission", value=0.0, step=0.01)
                 
+                # Add notes field
+                notes = st.text_area("Notes (optional)", help="Add any additional notes about this trade")
+                
                 # Calculate position value
                 position_value = entry_price * contracts * 1000  # 1000 barrels per contract
                 st.info(f"Position Value: ${position_value:,.2f}")
@@ -1050,7 +1071,7 @@ def main():
                             "final_pnl": 0.0,
                             "close_date": None,
                             "close_price": None,
-                            "notes": ""
+                            "notes": notes
                         }
                         
                         try:
@@ -1073,7 +1094,6 @@ def main():
                 if not open_trades_df.empty:
                     # Select trade to manage - with error handling for missing columns
                     trade_options = []
-                    required_cols = ['trade_no', 'underlying', 'option_type', 'strike_price']
                     
                     for _, row in open_trades_df.iterrows():
                         try:
@@ -1353,7 +1373,7 @@ def main():
                 
             else:
                 st.info("No trades available for analysis. Add some trades to see analytics.")
-
+                
         # Connection status indicator
         if mongo_connected:
             st.success("✅ Connected to MongoDB")
