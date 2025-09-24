@@ -816,7 +816,94 @@ def main():
             if 'trades_data' not in st.session_state:
                 st.session_state.trades_data = []
 
-        # --- DB/Session Helpers ---
+        # --- Data Import/Mapping Functions ---
+        def map_csv_to_trade_format(csv_df):
+            """Map CSV columns to the expected trade format"""
+            mapped_trades = []
+            
+            for _, row in csv_df.iterrows():
+                # Determine status based on whether it's expired or has a close date
+                status = "Closed" if (row.get('Expired?') == 'Expired' or 
+                                    pd.notna(row.get('Close Date')) or 
+                                    pd.notna(row.get('Closing Price'))) else "Open"
+                
+                # Parse dates carefully
+                trade_date = None
+                expiry_date = None
+                close_date = None
+                
+                try:
+                    if pd.notna(row.get('Trade Date')):
+                        trade_date = pd.to_datetime(row['Trade Date'], format='%d/%m/%Y').date().isoformat()
+                except:
+                    try:
+                        trade_date = pd.to_datetime(row['Trade Date']).date().isoformat()
+                    except:
+                        trade_date = datetime.date.today().isoformat()
+                
+                try:
+                    if pd.notna(row.get('Expiration Date')):
+                        expiry_date = pd.to_datetime(row['Expiration Date'], format='%d/%m/%Y').date().isoformat()
+                except:
+                    try:
+                        expiry_date = pd.to_datetime(row['Expiration Date']).date().isoformat()
+                    except:
+                        expiry_date = None
+                
+                try:
+                    if pd.notna(row.get('Close Date')):
+                        close_date = pd.to_datetime(row['Close Date'], format='%d/%m/%Y').date().isoformat()
+                except:
+                    try:
+                        close_date = pd.to_datetime(row['Close Date']).date().isoformat()
+                    except:
+                        close_date = None
+                
+                mapped_trade = {
+                    "trade_no": int(row.get('Trade No', 0)),
+                    "trade_date": trade_date,
+                    "underlying": str(row.get('Underlying', 'N/A')),
+                    "expiration_date": expiry_date,
+                    "days_to_expiry": int(row.get('Days to Expiry', 0)) if pd.notna(row.get('Days to Expiry')) and str(row.get('Days to Expiry')).replace('-','').isdigit() else 0,
+                    "option_type": str(row.get('Option Type', 'Call')),
+                    "direction": str(row.get('Direction', 'Buy')),
+                    "strike_price": float(row.get('Strike Price', 0)) if pd.notna(row.get('Strike Price')) else 0,
+                    "contracts": 1,  # Default to 1 contract
+                    "entry_price": float(row.get('Entry Price', 0)) if pd.notna(row.get('Entry Price')) else 0,
+                    "commission": float(row.get('Commision', 0)) if pd.notna(row.get('Commision')) else 0,  # Note: 'Commision' spelling
+                    "status": status,
+                    "entry_timestamp": datetime.datetime.now().isoformat(),
+                    "current_price": float(row.get('Closing Price', 0)) if pd.notna(row.get('Closing Price')) and status == "Closed" else None,
+                    "unrealized_pnl": 0.0,
+                    "final_pnl": float(row.get('Final P&L', 0)) if pd.notna(row.get('Final P&L')) else 0,
+                    "close_date": close_date,
+                    "close_price": float(row.get('Closing Price', 0)) if pd.notna(row.get('Closing Price')) else None,
+                    "settlement_price": float(row.get('Settlement Price', 0)) if pd.notna(row.get('Settlement Price')) else None,
+                    "notes": f"Imported from CSV. Tenure: {row.get('Tenure', 'N/A')}"
+                }
+                
+                mapped_trades.append(mapped_trade)
+            
+            return mapped_trades
+
+        def import_csv_trades(csv_data):
+            """Import trades from CSV data"""
+            try:
+                # Parse CSV
+                from io import StringIO
+                csv_df = pd.read_csv(StringIO(csv_data))
+                
+                # Map to trade format
+                mapped_trades = map_csv_to_trade_format(csv_df)
+                
+                # Add to database/session
+                for trade in mapped_trades:
+                    add_trade(trade)
+                
+                return len(mapped_trades)
+            except Exception as e:
+                st.error(f"Error importing CSV: {str(e)}")
+                return 0
         def get_trades():
             if mongo_connected:
                 trades = list(collection.find({}, {"_id": 0}))
@@ -868,11 +955,12 @@ def main():
         # --- Main Trade Ledger Interface ---
         
         # Create tabs within the trade ledger
-        subtab1, subtab2, subtab3, subtab4 = st.tabs([
+        subtab1, subtab2, subtab3, subtab4, subtab5 = st.tabs([
             "📋 All Trades", 
             "➕ New Trade", 
             "🔄 Manage Trades", 
-            "📊 Analytics"
+            "📊 Analytics",
+            "📁 Import/Export"
         ])
         
         with subtab1:
@@ -1344,6 +1432,153 @@ def main():
                 
             else:
                 st.info("No trades available for analysis. Add some trades to see analytics.")
+        
+        with subtab5:
+            st.subheader("📁 Import/Export Data")
+            
+            # Import required for CSV processing
+            from io import StringIO
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.subheader("📥 Import Trades")
+                st.info("Upload your existing CSV file to import trades into the system.")
+                
+                uploaded_file = st.file_uploader("Choose CSV file", type="csv")
+                
+                if uploaded_file is not None:
+                    # Preview the uploaded data
+                    try:
+                        csv_content = uploaded_file.read().decode('utf-8')
+                        preview_df = pd.read_csv(StringIO(csv_content))
+                        
+                        st.write("**Preview of uploaded data:**")
+                        st.dataframe(preview_df.head(), use_container_width=True)
+                        
+                        st.write(f"**Total rows:** {len(preview_df)}")
+                        st.write("**Columns found:**", list(preview_df.columns))
+                        
+                        # Show mapping
+                        st.write("**Column Mapping:**")
+                        mapping_info = {
+                            "Trade No → trade_no": "✅",
+                            "Trade Date → trade_date": "✅", 
+                            "Underlying → underlying": "✅",
+                            "Expiration Date → expiration_date": "✅",
+                            "Option Type → option_type": "✅",
+                            "Direction → direction": "✅",
+                            "Strike Price → strike_price": "✅",
+                            "Entry Price → entry_price": "✅",
+                            "Final P&L → final_pnl": "✅",
+                            "Closing Price → close_price": "✅",
+                            "Close Date → close_date": "✅"
+                        }
+                        
+                        for mapping, status in mapping_info.items():
+                            st.write(f"{status} {mapping}")
+                        
+                        # Import button
+                        if st.button("Import All Trades", type="primary"):
+                            with st.spinner("Importing trades..."):
+                                imported_count = import_csv_trades(csv_content)
+                                
+                            if imported_count > 0:
+                                st.success(f"Successfully imported {imported_count} trades!")
+                                time.sleep(2)
+                                st.rerun()
+                            else:
+                                st.error("Failed to import trades. Please check the format.")
+                                
+                    except Exception as e:
+                        st.error(f"Error reading CSV file: {str(e)}")
+                        st.write("Please ensure your CSV file has the correct format.")
+                
+                # Show expected format
+                st.subheader("Expected CSV Format")
+                st.write("Your CSV should contain these columns:")
+                expected_columns = [
+                    "Trade No", "Trade Date", "Underlying", "Expiration Date",
+                    "Option Type", "Direction", "Strike Price", "Entry Price", 
+                    "Final P&L", "Closing Price", "Close Date"
+                ]
+                st.write(", ".join([f"`{col}`" for col in expected_columns]))
+            
+            with col2:
+                st.subheader("📤 Export Trades")
+                
+                trades_df = get_trades()
+                
+                if not trades_df.empty:
+                    st.info(f"Found {len(trades_df)} trades to export")
+                    
+                    # Export options
+                    export_format = st.selectbox(
+                        "Export Format",
+                        ["CSV", "Excel", "JSON"]
+                    )
+                    
+                    export_type = st.radio(
+                        "Export Type",
+                        ["All Trades", "Open Trades Only", "Closed Trades Only"]
+                    )
+                    
+                    # Filter data based on selection
+                    if export_type == "Open Trades Only":
+                        export_df = trades_df[trades_df.get('status', '') == 'Open'] if 'status' in trades_df.columns else pd.DataFrame()
+                    elif export_type == "Closed Trades Only":
+                        export_df = trades_df[trades_df.get('status', '') == 'Closed'] if 'status' in trades_df.columns else pd.DataFrame()
+                    else:
+                        export_df = trades_df
+                    
+                    if not export_df.empty:
+                        st.write(f"Exporting {len(export_df)} trades")
+                        
+                        # Generate filename
+                        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        
+                        if export_format == "CSV":
+                            export_data = export_df.to_csv(index=False)
+                            filename = f"trades_export_{timestamp}.csv"
+                            mime_type = "text/csv"
+                        
+                        elif export_format == "Excel":
+                            from io import BytesIO
+                            buffer = BytesIO()
+                            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                                export_df.to_excel(writer, index=False, sheet_name='Trades')
+                            export_data = buffer.getvalue()
+                            filename = f"trades_export_{timestamp}.xlsx"
+                            mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        
+                        else:  # JSON
+                            export_data = export_df.to_json(orient='records', date_format='iso')
+                            filename = f"trades_export_{timestamp}.json"
+                            mime_type = "application/json"
+                        
+                        st.download_button(
+                            label=f"Download {export_format}",
+                            data=export_data,
+                            file_name=filename,
+                            mime=mime_type,
+                            type="primary"
+                        )
+                    else:
+                        st.warning(f"No trades found for {export_type.lower()}")
+                else:
+                    st.warning("No trades available to export")
+                
+                # Clear all data option
+                st.subheader("⚠️ Data Management")
+                
+                if st.button("Clear All Trades", help="This will permanently delete all trades"):
+                    if mongo_connected:
+                        collection.delete_many({})
+                    else:
+                        st.session_state.trades_data = []
+                    st.success("All trades cleared!")
+                    time.sleep(1)
+                    st.rerun()
 
         # Connection status indicator
         if mongo_connected:
@@ -1352,14 +1587,15 @@ def main():
             st.warning("⚠️ Running in session-only mode (data will be lost on refresh)")
 
         # Auto-refresh for open positions
+        trades_df = get_trades()
         if not trades_df.empty:
-            open_count = len(trades_df[trades_df.get('status', '') == 'Open']) if 'status' in trades_df.columns else 0
-            if open_count > 0:
-                auto_update = st.checkbox(f"Auto-update open positions ({open_count} open)", value=False)
-                if auto_update:
-                    st.info("🔄 Auto-updating every 60 seconds...")
-                    time.sleep(60)
-                    st.rerun()
+        open_count = len(trades_df[trades_df.get('status', '') == 'Open']) if 'status' in trades_df.columns else 0
+        if open_count > 0:
+            auto_update = st.checkbox(f"Auto-update open positions ({open_count} open)", value=False)
+            if auto_update:
+                st.info("🔄 Auto-updating every 60 seconds...")
+                time.sleep(60)
+                st.rerun()
 
     # Auto-refresh logic
     if auto_refresh:
