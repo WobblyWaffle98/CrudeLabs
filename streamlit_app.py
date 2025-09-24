@@ -472,14 +472,14 @@ def main():
     
     # Merge data
     if not options_df.empty:
-        merged_df = options_df.merge(df[['symbol', 'bidPrice', 'priceChange', 'volume', 'openInterest']], 
+        merged_df = options_df.merge(df[['symbol', 'lastPrice', 'priceChange', 'volume', 'openInterest']], 
                                    left_on='Contract', 
                                    right_on='symbol', 
                                    how='left')
-        merged_df = merged_df.rename(columns={'bidPrice': 'Bid Price'})
+        merged_df = merged_df.rename(columns={'lastPrice': 'Last Price'})
     else:
-        merged_df = df[['symbol', 'bidPrice', 'priceChange', 'volume', 'openInterest']].head(num_contracts).copy()
-        merged_df = merged_df.rename(columns={'symbol': 'Contract', 'bidPrice': 'Bid Price'})
+        merged_df = df[['symbol', 'lastPrice', 'priceChange', 'volume', 'openInterest']].head(num_contracts).copy()
+        merged_df = merged_df.rename(columns={'symbol': 'Contract', 'lastPrice': 'Last Price'})
         merged_df['Expiration Date'] = 'N/A'
         merged_df['Options Days to Expiry'] = 0
         merged_df['Futures Implied Volatility'] = 0
