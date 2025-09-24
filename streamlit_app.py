@@ -4,39 +4,193 @@ import pandas as pd
 from urllib.parse import unquote
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from bs4 import BeautifulSoup
 import datetime
 import time
 import numpy as np
 import yfinance as yf
 from curl_cffi import requests as curl_requests
-from pymongo import MongoClient
+from scipy import stats
+from scipy.interpolate import interp1d
+import warnings
+warnings.filterwarnings('ignore')
 
-# Set page config
+# Set page config with enhanced styling
 st.set_page_config(
-    page_title="Futures Data Dashboard",
-    page_icon="📈",
+    page_title="Advanced Futures Analytics Dashboard",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Title and description
-st.title("📈 Futures Data Dashboard")
-st.markdown("Interactive dashboard for analyzing crude oil futures data from Barchart")
+# Enhanced CSS for better dark theme integration
+st.markdown("""
+<style>
+    .main-header {
+        background: linear-gradient(90deg, #615fff 0%, #4338ca 100%);
+        padding: 1rem 2rem;
+        border-radius: 10px;
+        margin-bottom: 2rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .metric-card {
+        background: #0f172b;
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid #314158;
+        margin: 0.5rem 0;
+    }
+    .analysis-section {
+        background: #1d293d;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border: 1px solid #314158;
+        margin: 1rem 0;
+    }
+    .risk-alert {
+        background: #dc2626;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        margin: 0.5rem 0;
+    }
+    .bullish-signal {
+        background: #10b981;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        margin: 0.5rem 0;
+    }
+    .neutral-signal {
+        background: #f59e0b;
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 5px;
+        margin: 0.5rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Sidebar controls
-st.sidebar.header("Settings")
-num_contracts = st.sidebar.slider("Number of contracts to analyze", 5, 20, 10)
-auto_refresh = st.sidebar.checkbox("Auto refresh (30s)", value=False)
+# Enhanced title with gradient background
+st.markdown("""
+<div class="main-header">
+    <h1 style="color: white; margin: 0;">📊 Advanced Futures Analytics Dashboard</h1>
+    <p style="color: #e2e8f0; margin: 0.5rem 0 0 0;">Comprehensive crude oil futures and options analysis platform</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Add refresh button
-if st.sidebar.button("🔄 Refresh Data"):
+# Enhanced sidebar with better organization
+st.sidebar.markdown("### ⚙️ Dashboard Settings")
+num_contracts = st.sidebar.slider("📈 Contracts to Analyze", 5, 25, 12, help="Number of futures contracts to include in analysis")
+auto_refresh = st.sidebar.checkbox("🔄 Auto Refresh (30s)", value=False)
+advanced_mode = st.sidebar.checkbox("🎯 Advanced Analytics", value=True, help="Enable sophisticated analysis features")
+
+st.sidebar.markdown("### 📊 Analysis Parameters")
+vol_window = st.sidebar.slider("Volatility Window (days)", 10, 60, 21)
+risk_threshold = st.sidebar.slider("Risk Alert Threshold (%)", 1, 10, 5)
+
+# Add refresh button with enhanced styling
+if st.sidebar.button("🔄 Refresh All Data", type="primary"):
+    st.cache_data.clear()
     st.rerun()
 
+# Advanced analytics functions
+@st.cache_data(ttl=300)
+def calculate_advanced_metrics(df, price_col='lastPrice'):
+    """Calculate advanced market metrics"""
+    prices = pd.to_numeric(df[price_col], errors='coerce').dropna()
+    
+    if len(prices) < 2:
+        return {}
+    
+    # Price momentum
+    momentum = (prices.iloc[-1] - prices.iloc[0]) / prices.iloc[0] * 100
+    
+    # Contango/Backwardation analysis
+    front_month = prices.iloc[0] if len(prices) > 0 else 0
+    back_month = prices.iloc[-1] if len(prices) > 1 else front_month
+    curve_slope = (back_month - front_month) / len(prices) if len(prices) > 1 else 0
+    
+    market_structure = "Contango" if curve_slope > 0 else "Backwardation" if curve_slope < 0 else "Flat"
+    
+    # Calculate volatility across the curve
+    price_volatility = prices.std() / prices.mean() * 100 if prices.mean() != 0 else 0
+    
+    return {
+        'momentum': momentum,
+        'curve_slope': curve_slope,
+        'market_structure': market_structure,
+        'price_volatility': price_volatility,
+        'front_month_price': front_month,
+        'back_month_price': back_month
+    }
+
+@st.cache_data(ttl=300)
+def calculate_greeks_approximation(options_df, underlying_price, risk_free_rate=0.05):
+    """Approximate options Greeks calculation"""
+    if options_df.empty:
+        return options_df
+    
+    df = options_df.copy()
+    
+    # Ensure numeric types
+    df['strike'] = pd.to_numeric(df['strike'], errors='coerce')
+    df['lastPrice'] = pd.to_numeric(df['lastPrice'], errors='coerce')
+    
+    # Simple Delta approximation (closer to ATM = higher delta)
+    df['moneyness'] = df['strike'] / underlying_price
+    df['delta_approx'] = np.where(
+        df['optionType'] == 'Call',
+        np.maximum(0, 1 - abs(df['moneyness'] - 1) * 2),
+        np.maximum(0, abs(df['moneyness'] - 1) * 2 - 1)
+    )
+    
+    # Gamma approximation (highest at ATM)
+    df['gamma_approx'] = np.exp(-((df['moneyness'] - 1) ** 2) * 10) * 0.1
+    
+    return df
+
+@st.cache_data(ttl=300)
+def analyze_options_flow(calls_df, puts_df):
+    """Analyze options flow and sentiment"""
+    if calls_df.empty and puts_df.empty:
+        return {}
+    
+    # Volume analysis
+    call_volume = calls_df['volume'].sum() if not calls_df.empty and 'volume' in calls_df.columns else 0
+    put_volume = puts_df['volume'].sum() if not puts_df.empty and 'volume' in puts_df.columns else 0
+    
+    # Open Interest analysis
+    call_oi = calls_df['openInterest'].sum() if not calls_df.empty and 'openInterest' in calls_df.columns else 0
+    put_oi = puts_df['openInterest'].sum() if not puts_df.empty and 'openInterest' in puts_df.columns else 0
+    
+    # Calculate ratios
+    put_call_ratio = put_volume / call_volume if call_volume > 0 else 0
+    oi_ratio = put_oi / call_oi if call_oi > 0 else 0
+    
+    # Sentiment analysis
+    if put_call_ratio > 1.2:
+        sentiment = "Bearish"
+    elif put_call_ratio < 0.8:
+        sentiment = "Bullish" 
+    else:
+        sentiment = "Neutral"
+    
+    return {
+        'call_volume': call_volume,
+        'put_volume': put_volume,
+        'call_oi': call_oi,
+        'put_oi': put_oi,
+        'put_call_ratio': put_call_ratio,
+        'oi_ratio': oi_ratio,
+        'sentiment': sentiment
+    }
+
+# Original data fetching functions (keeping the same)
 @st.cache_data(ttl=300)
 def fetch_detailed_options_data(symbols):
     """Fetch detailed options data for given symbols using the provided method"""
-    
     url = 'https://www.barchart.com/proxies/core-api/v1/quotes/get?'
     
     headers = {
@@ -112,12 +266,9 @@ def fetch_detailed_options_data(symbols):
         st.error(f"Error fetching detailed options data: {str(e)}")
         return {}
 
-
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=300)
 def fetch_futures_data():
     """Fetch futures contract data from Barchart API"""
-    
-    # URLs and headers
     geturl = 'https://www.barchart.com/futures/quotes/CLF25/options/jan-25?futuresOptionsView=merged'
     apiurl = 'https://www.barchart.com/proxies/core-api/v1/quotes/get'
 
@@ -161,7 +312,7 @@ def fetch_futures_data():
         df = pd.json_normalize(j['data'])
         df = df.drop(0).reset_index(drop=True)
         
-        # Clean the 'lastPrice' column
+        # Clean the data
         df['lastPrice'] = df['lastPrice'].str.replace('s', '', regex=False).astype(float)
         df['priceChange'] = pd.to_numeric(df['priceChange'], errors='coerce')
         df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
@@ -173,14 +324,12 @@ def fetch_futures_data():
         st.error(f"Error fetching futures data: {str(e)}")
         return None
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
+@st.cache_data(ttl=3600)
 def load_oil_data(ticker='CL=F', start_date='2020-01-01', end_date=None):
     """Load oil data using yfinance with curl_cffi session"""
     try:
-        # Create a curl_cffi session that mimics Chrome
         session = curl_requests.Session(impersonate="chrome")
         
-        # If no end_date provided, use current date
         if end_date is None:
             end_date = datetime.datetime.now().strftime('%Y-%m-%d')
         
@@ -190,7 +339,6 @@ def load_oil_data(ticker='CL=F', start_date='2020-01-01', end_date=None):
         
         # Handle MultiIndex columns
         if isinstance(data.columns, pd.MultiIndex):
-            # Flatten the MultiIndex columns, keeping only the first level (OHLCV names)
             data.columns = data.columns.get_level_values(0)
         
         data = data.reset_index()
@@ -199,10 +347,10 @@ def load_oil_data(ticker='CL=F', start_date='2020-01-01', end_date=None):
     except Exception as e:
         st.error(f"Error loading oil data: {str(e)}")
         return pd.DataFrame()
+
 @st.cache_data(ttl=300)
 def fetch_options_data(symbols):
     """Fetch options data for given symbols"""
-    
     base_url = "https://www.barchart.com/futures/quotes/{}/options/"
     
     headers = {
@@ -232,7 +380,6 @@ def fetch_options_data(symbols):
                         days_to_expiry = columns[0].get_text(strip=True)
                         implied_volatility = columns[1].get_text(strip=True)
 
-                        # Extract numerical values
                         try:
                             expiration_date = days_to_expiry.split()[3][2:]
                             days_to_expiry_num = int(days_to_expiry.split()[0])
@@ -245,8 +392,7 @@ def fetch_options_data(symbols):
         except requests.exceptions.RequestException as e:
             st.warning(f"Request failed for {contract}: {str(e)}")
         
-        # Small delay to be respectful to the server
-        time.sleep(0.5)
+        time.sleep(0.3)  # Reduced delay for better UX
     
     progress_bar.empty()
     
@@ -256,34 +402,73 @@ def fetch_options_data(symbols):
     else:
         return pd.DataFrame()
 
-# Main app logic
+# Main application logic
 def main():
-    # Fetch data
-    with st.spinner("Fetching futures data..."):
+    # Fetch core data
+    with st.spinner("🔄 Loading futures data..."):
         df = fetch_futures_data()
     
     if df is None or df.empty:
-        st.error("Failed to fetch futures data. Please try again later.")
+        st.error("❌ Failed to fetch futures data. Please try again later.")
         return
     
-    # Display basic info - front month only
-    col1, col2 = st.columns(2)
+    # Calculate advanced metrics
+    if advanced_mode:
+        with st.spinner("🧠 Calculating advanced analytics..."):
+            advanced_metrics = calculate_advanced_metrics(df.head(num_contracts))
+    
+    # Enhanced header metrics with better styling
+    st.markdown("### 📊 Market Overview")
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         front_month_contract = df['symbol'].iloc[0] if not df.empty else "N/A"
-        st.metric("Front Month Contract", front_month_contract)
+        front_month_price = df['lastPrice'].iloc[0] if not df.empty else 0
+        price_change = df['priceChange'].iloc[0] if not df.empty and 'priceChange' in df.columns else 0
+        st.metric("🛢️ Front Month", f"{front_month_contract}", delta=None)
+        st.metric("💰 Price", f"${front_month_price:.2f}", delta=f"{price_change:+.2f}")
     
     with col2:
-        front_month_price = df['lastPrice'].iloc[0] if not df.empty else 0
-        st.metric("Front Month Price", f"${front_month_price:.2f}")
+        if advanced_mode and advanced_metrics:
+            market_structure = advanced_metrics.get('market_structure', 'Unknown')
+            curve_slope = advanced_metrics.get('curve_slope', 0)
+            
+            structure_color = "🟢" if market_structure == "Contango" else "🔴" if market_structure == "Backwardation" else "🟡"
+            st.metric("📈 Market Structure", f"{structure_color} {market_structure}")
+            st.metric("📐 Curve Slope", f"{curve_slope:.3f}")
+    
+    with col3:
+        total_volume = df['volume'].sum() if 'volume' in df.columns else 0
+        total_oi = df['openInterest'].sum() if 'openInterest' in df.columns else 0
+        st.metric("📊 Total Volume", f"{total_volume:,.0f}")
+        st.metric("🔢 Total OI", f"{total_oi:,.0f}")
+    
+    with col4:
+        if advanced_mode and advanced_metrics:
+            momentum = advanced_metrics.get('momentum', 0)
+            volatility = advanced_metrics.get('price_volatility', 0)
+            
+            momentum_emoji = "🚀" if momentum > 2 else "📉" if momentum < -2 else "➡️"
+            st.metric("⚡ Momentum", f"{momentum_emoji} {momentum:.2f}%")
+            st.metric("📊 Volatility", f"{volatility:.2f}%")
 
-    # Fetch options data upfront for the forward curve
+    # Risk alerts
+    if advanced_mode and advanced_metrics:
+        risk_level = max(abs(advanced_metrics.get('momentum', 0)), advanced_metrics.get('price_volatility', 0))
+        if risk_level > risk_threshold:
+            st.markdown(f"""
+            <div class="risk-alert">
+                ⚠️ <strong>Risk Alert:</strong> High volatility detected ({risk_level:.1f}% > {risk_threshold}% threshold)
+            </div>
+            """, unsafe_allow_html=True)
+
+    # Fetch options data for analysis
     first_symbols = df['symbol'].iloc[:num_contracts].tolist()
     
-    with st.spinner("Fetching options data for forward curve..."):
+    with st.spinner("📈 Fetching options data..."):
         options_df = fetch_options_data(first_symbols)
     
-    # Merge futures and options data
+    # Merge data
     if not options_df.empty:
         merged_df = options_df.merge(df[['symbol', 'lastPrice', 'priceChange', 'volume', 'openInterest']], 
                                    left_on='Contract', 
@@ -291,516 +476,793 @@ def main():
                                    how='left')
         merged_df = merged_df.rename(columns={'lastPrice': 'Last Price'})
     else:
-        # Fallback if options data fails
         merged_df = df[['symbol', 'lastPrice', 'priceChange', 'volume', 'openInterest']].head(num_contracts).copy()
         merged_df = merged_df.rename(columns={'symbol': 'Contract', 'lastPrice': 'Last Price'})
         merged_df['Expiration Date'] = 'N/A'
         merged_df['Options Days to Expiry'] = 0
         merged_df['Futures Implied Volatility'] = 0
-    
-    # === Fetch first 10 contracts automatically at startup ===
+
+    # Initialize session state for options data
     if "initial_options_data" not in st.session_state:
         if not merged_df.empty:
-            initial_contracts = merged_df['Contract'].head(10).tolist()
+            initial_contracts = merged_df['Contract'].head(15).tolist()  # Increased to 15
 
-            with st.spinner("Fetching options data for the first 10 contracts..."):
+            with st.spinner("🔄 Pre-loading options data..."):
                 options_data = fetch_detailed_options_data(initial_contracts)
 
-            # Store all contracts data in session_state
             for contract in initial_contracts:
                 if options_data and contract in options_data:
                     st.session_state[f'options_data_{contract}'] = options_data[contract]
 
-            # Auto-select the first contract
             if initial_contracts:
                 st.session_state["selected_contract"] = initial_contracts[0]
 
             st.session_state["initial_options_data"] = True
-            st.success("Fetched options data for the first 10 contracts ✅")
-        else:
-            st.warning("No contracts available to fetch initially.")
+            st.success("✅ Options data loaded successfully!")
 
-    # Create tabs
-    tab1, tab2, tab3, tab4= st.tabs([
-    "Options Curve", 
-    "Expiry Distribution", 
-    "Contract Comparison", 
-    "2D Visualization", 
-   
-])
-
+    # Enhanced tabbed interface
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📊 Market Analysis", 
+        "⚡ Options Flow", 
+        "📈 Price Discovery", 
+        "🎯 Risk Analytics",
+        "🔍 Contract Deep Dive",
+        "📋 Portfolio Tools"
+    ])
     
+    # TAB 1: Enhanced Market Analysis
     with tab1:
-        st.subheader("Futures Curve with Options Data")
+        st.markdown("### 📊 Comprehensive Market Analysis")
         
-        # Display the merged data table
-        st.dataframe(merged_df[['Contract', 'Last Price', 'Expiration Date', 'Options Days to Expiry', 'Futures Implied Volatility']], 
-                    use_container_width=True)
+        # Enhanced forward curve with multiple views
+        fig_curve = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=('Forward Curve', 'Implied Volatility', 'Volume Profile', 'Open Interest'),
+            specs=[[{"secondary_y": False}, {"secondary_y": False}],
+                   [{"secondary_y": False}, {"secondary_y": False}]]
+        )
         
-        # Forward curve chart with options data
-        fig_curve = go.Figure()
+        # Forward curve
+        fig_curve.add_trace(
+            go.Scatter(x=merged_df['Contract'], y=merged_df['Last Price'],
+                      mode='lines+markers', name='Price',
+                      line=dict(color='#615fff', width=3),
+                      marker=dict(size=8, color='#615fff')),
+            row=1, col=1
+        )
         
-        # Add price line
-        fig_curve.add_trace(go.Scatter(
-            x=merged_df['Contract'],
-            y=merged_df['Last Price'],
-            mode='lines+markers',
-            name='Last Price',
-            line=dict(color='blue', width=2),
-            marker=dict(size=8),
-            hovertemplate='<b>%{x}</b><br>Price: $%{y:.2f}<extra></extra>'
-        ))
+        # Implied Volatility
+        if 'Futures Implied Volatility' in merged_df.columns:
+            fig_curve.add_trace(
+                go.Bar(x=merged_df['Contract'], y=merged_df['Futures Implied Volatility'],
+                      name='IV', marker_color='#f59e0b'),
+                row=1, col=2
+            )
+        
+        # Volume
+        if 'volume' in merged_df.columns:
+            fig_curve.add_trace(
+                go.Bar(x=merged_df['Contract'], y=merged_df['volume'],
+                      name='Volume', marker_color='#10b981'),
+                row=2, col=1
+            )
+        
+        # Open Interest
+        if 'openInterest' in merged_df.columns:
+            fig_curve.add_trace(
+                go.Bar(x=merged_df['Contract'], y=merged_df['openInterest'],
+                      name='OI', marker_color='#ef4444'),
+                row=2, col=2
+            )
         
         fig_curve.update_layout(
-            title='Crude Oil Futures Forward Curve',
-            xaxis_title='Contract Symbol',
-            yaxis_title='Price ($)',
-            hovermode='x unified',
-            showlegend=True
+            height=700,
+            title_text="Multi-Dimensional Market Analysis",
+            showlegend=False,
+            template="plotly_dark"
         )
         
         st.plotly_chart(fig_curve, use_container_width=True)
         
-        # Additional charts in columns
-        col1, col2 = st.columns(2)
+        # Enhanced data table with conditional formatting
+        st.markdown("#### 📋 Contract Details")
         
-        with col1:
-            # Days to expiry chart
-            if 'Options Days to Expiry' in merged_df.columns and merged_df['Options Days to Expiry'].sum() > 0:
-                fig_days = px.bar(merged_df,
-                                 x='Contract',
-                                 y='Options Days to Expiry',
-                                 title='Days to Options Expiry',
-                                 color='Options Days to Expiry',
-                                 color_continuous_scale='viridis')
-                st.plotly_chart(fig_days, use_container_width=True)
-            else:
-                st.info("Options expiry data not available")
-        
-        with col2:
-            # Implied volatility chart
-            if 'Futures Implied Volatility' in merged_df.columns and merged_df['Futures Implied Volatility'].sum() > 0:
-                fig_iv = px.bar(merged_df,
-                               x='Contract',
-                               y='Futures Implied Volatility',
-                               title='Implied Volatility (%)',
-                               color='Futures Implied Volatility',
-                               color_continuous_scale='RdYlBu')
-                st.plotly_chart(fig_iv, use_container_width=True)
-            else:
-                st.info("Implied volatility data not available")
-    
-    with tab2:
-        st.subheader("WTI Crude Oil Price")
-        
-        # Date range selector
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            start_date = st.date_input(
-                "Start Date",
-                value=datetime.datetime(2020, 1, 1),
-                max_value=datetime.datetime.now()
-            )
-        
-        with col2:
-            end_date = st.date_input(
-                "End Date",
-                value=datetime.datetime.now(),
-                max_value=datetime.datetime.now()
-            )
-        
-        # Load oil data button
-        if st.button("Load WTI Data", type="primary"):
-            with st.spinner("Loading WTI data..."):
-                df_wti = load_oil_data('CL=F', start_date=start_date.strftime('%Y-%m-%d'), 
-                                     end_date=end_date.strftime('%Y-%m-%d'))
+        # Add technical indicators to the display
+        display_df = merged_df.copy()
+        if advanced_mode:
+            # Calculate relative strength
+            display_df['Relative_Strength'] = (display_df['Last Price'] / display_df['Last Price'].mean() - 1) * 100
             
-            if not df_wti.empty and len(df_wti) > 0 and 'Close' in df_wti.columns:
-                st.success(f"Successfully loaded {len(df_wti)} days of WTI data")
-                
-                # Calculate metrics
-                latest_price = df_wti['Close'].dropna().iloc[-1] if not df_wti['Close'].dropna().empty else 0
-                latest_date = df_wti['Date'].iloc[-1].strftime('%Y-%m-%d') if not df_wti.empty else "N/A"
-                price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[-2]) if len(df_wti['Close'].dropna()) > 1 else 0
-                
-                # Calculate 52-week (252 trading days) high and low
-                trading_days_52w = min(252, len(df_wti))
-                recent_52w = df_wti.tail(trading_days_52w)
-                high_52w = recent_52w['High'].max() if 'High' in df_wti.columns else latest_price
-                low_52w = recent_52w['Low'].min() if 'Low' in df_wti.columns else latest_price
-                
-                avg_volume = df_wti['Volume'].mean() if 'Volume' in df_wti.columns and df_wti['Volume'].notna().any() else 0
-                
-                # Calculate volatility for different periods
-                volatility_1m = volatility_3m = volatility_1y = 0
-                
-                if len(df_wti['Close'].dropna()) > 1:
-                    # 1 Month volatility (21 trading days)
-                    if len(df_wti) >= 21:
-                        vol_1m_data = df_wti['Close'].tail(21).pct_change().std() * np.sqrt(252) * 100
-                        volatility_1m = vol_1m_data
-                    
-                    # 3 Month volatility (63 trading days)
-                    if len(df_wti) >= 63:
-                        vol_3m_data = df_wti['Close'].tail(63).pct_change().std() * np.sqrt(252) * 100
-                        volatility_3m = vol_3m_data
-                    
-                    # 1 Year volatility (252 trading days)
-                    trading_days_1y = min(252, len(df_wti))
-                    vol_1y_data = df_wti['Close'].tail(trading_days_1y).pct_change().std() * np.sqrt(252) * 100
-                    volatility_1y = vol_1y_data
-                
-                # Display metrics in two rows
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    st.metric("Last Closing Price", f"${latest_price:.2f}", delta=f"{price_change:+.2f}")
-                    st.caption(f"Date: {latest_date}")
-                
-                with col2:
-                    st.metric("52W High", f"${high_52w:.2f}")
-                
-                with col3:
-                    st.metric("52W Low", f"${low_52w:.2f}")
-                
-                with col4:
-                    st.metric("Avg Volume", f"{avg_volume:,.0f}")
-                
-                # Volatility metrics row
-                col5, col6, col7, col8 = st.columns(4)
-                
-                with col5:
-                    st.metric("1M Volatility", f"{volatility_1m:.1f}%")
-                
-                with col6:
-                    st.metric("3M Volatility", f"{volatility_3m:.1f}%")
-                
-                with col7:
-                    st.metric("1Y Volatility", f"{volatility_1y:.1f}%")
-                
-                with col8:
-                    st.metric("", "")  # Empty for spacing
-                
-                # Create all four charts
-                st.subheader("WTI Price Analysis")
-                
-                # Prepare data for different periods
-                current_year = datetime.datetime.now().year
-                ytd_start = datetime.datetime(current_year, 1, 1)
-                
-                # 1. 3 Months chart
-                chart_3m = df_wti.tail(min(63, len(df_wti)))
-                
-                # 2. YTD chart  
-                chart_ytd = df_wti[df_wti['Date'] >= ytd_start]
-                
-                # 3. Full period chart
-                chart_full = df_wti
-                
-                # 4. Yearly rebased chart data preparation
-                df_rebased = df_wti.copy()
-                df_rebased['Year'] = df_rebased['Date'].dt.year
-                df_rebased['DayOfYear'] = df_rebased['Date'].dt.dayofyear
-                df_rebased['Quarter'] = df_rebased['Date'].dt.quarter
-                
-                # Rebase function (per year)
-                def rebase(series):
-                    if len(series) > 0:
-                        return (series / series.iloc[0]) * 100
-                    return series
-                
-                df_rebased['Rebased'] = df_rebased.groupby('Year')['Close'].transform(rebase)
-                
-                # Create charts in 2x2 grid
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # 3 Months chart
-                    fig_3m = px.line(chart_3m,
-                                    x='Date',
-                                    y='Close',
-                                    title='WTI - Last 3 Months',
-                                    labels={'Close': 'Price ($)', 'Date': 'Date'})
-                    fig_3m.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_3m, use_container_width=True)
-                
-                with col2:
-                    # YTD chart
-                    fig_ytd = px.line(chart_ytd,
-                                     x='Date',
-                                     y='Close',
-                                     title=f'WTI - YTD {current_year}',
-                                     labels={'Close': 'Price ($)', 'Date': 'Date'})
-                    fig_ytd.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_ytd, use_container_width=True)
-                
-                col3, col4 = st.columns(2)
-                
-                with col3:
-                    # Full period chart
-                    fig_full = px.line(chart_full,
-                                      x='Date',
-                                      y='Close',
-                                      title='WTI - Full Period',
-                                      labels={'Close': 'Price ($)', 'Date': 'Date'})
-                    fig_full.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_full, use_container_width=True)
-                
-                with col4:
-                    # Yearly rebased chart
-                    fig_rebased = go.Figure()
-                    
-                    # Add quarterly shaded regions
-                    quarter_colors = ['#e0f3f8', '#ccebc5', '#fddbc7', '#f2f0f7']
-                    quarter_ranges = {
-                        1: (1, 90),
-                        2: (91, 181), 
-                        3: (182, 273),
-                        4: (274, 366)
-                    }
-                    
-                    for q, (start, end) in quarter_ranges.items():
-                        fig_rebased.add_vrect(
-                            x0=start, x1=end,
-                            fillcolor=quarter_colors[q-1],
-                            opacity=0.2,
-                            layer="below",
-                            line_width=0,
-                            annotation_text=f"Q{q}",
-                            annotation_position="top"
-                        )
-                    
-                    # Choose years to highlight (last 3 years)
-                    all_years = sorted(df_rebased['Year'].unique())
-                    highlight_years = all_years[-3:] if len(all_years) >= 3 else all_years
-                    highlight_colors = ['crimson', 'royalblue', 'darkorange']
-                    muted_color = 'lightgray'
-                    
-                    # Plot yearly rebased lines
-                    for year, group in df_rebased.groupby('Year'):
-                        if year in highlight_years and len(highlight_years) <= 3:
-                            idx = highlight_years.index(year) % len(highlight_colors)
-                            color = highlight_colors[idx]
-                            line_width = 3
-                        else:
-                            color = muted_color
-                            line_width = 1.5
-                        
-                        fig_rebased.add_trace(
-                            go.Scatter(
-                                x=group['DayOfYear'],
-                                y=group['Rebased'],
-                                mode='lines',
-                                name=str(year),
-                                line=dict(color=color, width=line_width)
-                            )
-                        )
-                    
-                    fig_rebased.update_layout(
-                        height=400,
-                        title="WTI - Yearly Rebased (Q Highlights)",
-                        xaxis_title="Day of Year",
-                        yaxis_title="Rebased Price (first day = 100)",
-                        template="plotly_white",
-                        showlegend=True,
-                        legend=dict(
-                            yanchor="top",
-                            y=0.99,
-                            xanchor="left", 
-                            x=0.01,
-                            font=dict(size=10)
-                        )
-                    )
-                    
-                    st.plotly_chart(fig_rebased, use_container_width=True)
-
-    with tab3:
-        st.subheader("Options Prices")
-
-        # Dropdown with auto-selected first contract
-        selected_contract = st.selectbox(
-            "Select contract for options data:",
-            options=merged_df['Contract'].tolist() if not merged_df.empty else [],
-            index=0 if not merged_df.empty else None,
-            key="options_contract_selector"
+            # Add momentum indicators
+            display_df['Price_Momentum'] = display_df['priceChange'] / display_df['Last Price'] * 100
+        
+        st.dataframe(
+            display_df.style.format({
+                'Last Price': '${:.2f}',
+                'priceChange': '{:+.2f}',
+                'Futures Implied Volatility': '{:.1f}%',
+                'Relative_Strength': '{:+.1f}%',
+                'Price_Momentum': '{:+.2f}%'
+            }).background_gradient(subset=['Last Price'], cmap='RdYlGn'),
+            use_container_width=True
         )
 
-        if f'options_data_{selected_contract}' in st.session_state:
-            calls_df, puts_df = st.session_state[f'options_data_{selected_contract}']
-
-            if not calls_df.empty and not puts_df.empty:
-                # Display Calls and Puts side by side
-                col1, col2 = st.columns(2)
-
-                columns_to_show = ['strike', 'lastPrice', 'priceChange', 'bidPrice', 'askPrice', 'volume', 'openInterest']
-
-                with col1:
-                    st.subheader(f"📈 Calls - {selected_contract}")
-                    display_calls = calls_df.copy()
-                    if all(col in display_calls.columns for col in columns_to_show):
-                        display_calls = display_calls[columns_to_show]
-                        display_calls.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
-
-                        for col in ['Last Price', 'Change', 'Bid', 'Ask']:
-                            display_calls[col] = display_calls[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
-                        for col in ['Volume', 'Open Interest']:
-                            display_calls[col] = display_calls[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
-
-                        st.dataframe(display_calls, use_container_width=True, hide_index=True)
-                    else:
-                        st.dataframe(calls_df, use_container_width=True)
-
-                with col2:
-                    st.subheader(f"📉 Puts - {selected_contract}")
-                    display_puts = puts_df.copy()
-                    if all(col in display_puts.columns for col in columns_to_show):
-                        display_puts = display_puts[columns_to_show]
-                        display_puts.columns = ['Strike', 'Last Price', 'Change', 'Bid', 'Ask', 'Volume', 'Open Interest']
-
-                        for col in ['Last Price', 'Change', 'Bid', 'Ask']:
-                            display_puts[col] = display_puts[col].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
-                        for col in ['Volume', 'Open Interest']:
-                            display_puts[col] = display_puts[col].apply(lambda x: f"{x:,}" if pd.notna(x) else "0")
-
-                        st.dataframe(display_puts, use_container_width=True, hide_index=True)
-                    else:
-                        st.dataframe(puts_df, use_container_width=True)
-
-                # Summary stats
-                st.subheader("Options Summary")
-                col1, col2, col3, col4 = st.columns(4)
-
-                with col1:
-                    total_call_volume = calls_df['volume'].sum() if 'volume' in calls_df.columns else 0
-                    st.metric("Total Call Volume", f"{total_call_volume:,}")
-
-                with col2:
-                    total_put_volume = puts_df['volume'].sum() if 'volume' in puts_df.columns else 0
-                    st.metric("Total Put Volume", f"{total_put_volume:,}")
-
-                with col3:
-                    call_put_ratio = total_call_volume / total_put_volume if total_put_volume > 0 else 0
-                    st.metric("Call/Put Ratio", f"{call_put_ratio:.2f}")
-
-                with col4:
-                    total_options = len(calls_df) + len(puts_df)
-                    st.metric("Total Options", f"{total_options}")
-            else:
-                st.warning(f"No options data available for {selected_contract}")
-        else:
-            st.warning("Please wait for the initial contracts data to load.")
-
-    # === TAB 4: 2D Overlay Plot (Ask Price + ATM Annotation) ===
-    with tab4:
-        st.subheader("2D Options Visualization (Overlay)")
-
-        # Collect all cached contracts (first 10 pulled earlier)
-        cached_contracts = [c for c in merged_df['Contract'].head(10).tolist() 
-                            if f'options_data_{c}' in st.session_state]
-
+    # TAB 2: Options Flow Analysis
+    with tab2:
+        st.markdown("### ⚡ Options Flow & Sentiment Analysis")
+        
+        # Contract selector for options analysis
+        cached_contracts = [c for c in merged_df['Contract'].head(15).tolist() 
+                           if f'options_data_{c}' in st.session_state]
+        
         if cached_contracts:
-            # Let user pick one or multiple contracts (default = first one)
-            default_contract = [cached_contracts[0]]
-            selected_contracts = st.multiselect(
-                "Select contract(s) to display:",
+            selected_contract = st.selectbox(
+                "🎯 Select Contract for Options Analysis:",
                 options=cached_contracts,
-                default=default_contract
+                index=0
             )
+            
+            if f'options_data_{selected_contract}' in st.session_state:
+                calls_df, puts_df = st.session_state[f'options_data_{selected_contract}']
+                
+                # Calculate options flow metrics
+                flow_metrics = analyze_options_flow(calls_df, puts_df)
+                
+                # Display sentiment dashboard
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    sentiment = flow_metrics.get('sentiment', 'Unknown')
+                    sentiment_color = {
+                        'Bullish': '#10b981',
+                        'Bearish': '#ef4444', 
+                        'Neutral': '#f59e0b'
+                    }.get(sentiment, '#6b7280')
+                    
+                    st.markdown(f"""
+                    <div style="background: {sentiment_color}; padding: 1rem; border-radius: 8px; text-align: center;">
+                        <h3 style="color: white; margin: 0;">Market Sentiment</h3>
+                        <h2 style="color: white; margin: 0;">{sentiment}</h2>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col2:
+                    pcr = flow_metrics.get('put_call_ratio', 0)
+                    st.metric("📊 Put/Call Ratio", f"{pcr:.2f}")
+                    st.metric("🔄 Volume Ratio", f"{flow_metrics.get('oi_ratio', 0):.2f}")
+                
+                with col3:
+                    st.metric("📞 Call Volume", f"{flow_metrics.get('call_volume', 0):,}")
+                    st.metric("📉 Put Volume", f"{flow_metrics.get('put_volume', 0):,}")
+                
+                # Options chain visualization
+                if not calls_df.empty and not puts_df.empty:
+                    # Enhanced options chain chart
+                    fig_options = make_subplots(
+                        rows=1, cols=2,
+                        subplot_titles=('Calls Volume', 'Puts Volume'),
+                        shared_yaxes=True
+                    )
+                    
+                    # Add volume bars for calls
+                    fig_options.add_trace(
+                        go.Bar(x=calls_df['volume'], y=calls_df['strike'],
+                              orientation='h', name='Calls', 
+                              marker_color='#10b981', opacity=0.7),
+                        row=1, col=1
+                    )
+                    
+                    # Add volume bars for puts (negative for visual separation)
+                    fig_options.add_trace(
+                        go.Bar(x=-puts_df['volume'], y=puts_df['strike'],
+                              orientation='h', name='Puts',
+                              marker_color='#ef4444', opacity=0.7),
+                        row=1, col=2
+                    )
+                    
+                    # Add ATM line
+                    underlying_price = merged_df[merged_df['Contract'] == selected_contract]['Last Price'].iloc[0]
+                    fig_options.add_hline(y=underlying_price, line_dash="dash", 
+                                        line_color="white", annotation_text="ATM")
+                    
+                    fig_options.update_layout(
+                        title=f"Options Flow Analysis - {selected_contract}",
+                        height=600,
+                        template="plotly_dark",
+                        showlegend=True
+                    )
+                    
+                    st.plotly_chart(fig_options, use_container_width=True)
+                    
+                    # Greeks analysis if advanced mode
+                    if advanced_mode:
+                        st.markdown("#### 🔬 Greeks Analysis")
+                        
+                        # Calculate approximate Greeks
+                        calls_with_greeks = calculate_greeks_approximation(calls_df, underlying_price)
+                        puts_with_greeks = calculate_greeks_approximation(puts_df, underlying_price)
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if not calls_with_greeks.empty:
+                                st.markdown("##### 📈 Calls Greeks")
+                                greeks_display = calls_with_greeks[['strike', 'lastPrice', 'delta_approx', 'gamma_approx']].head(10)
+                                greeks_display.columns = ['Strike', 'Price', 'Delta*', 'Gamma*']
+                                st.dataframe(greeks_display.style.format({
+                                    'Price': '${:.2f}',
+                                    'Delta*': '{:.3f}',
+                                    'Gamma*': '{:.3f}'
+                                }))
+                        
+                        with col2:
+                            if not puts_with_greeks.empty:
+                                st.markdown("##### 📉 Puts Greeks")
+                                greeks_display = puts_with_greeks[['strike', 'lastPrice', 'delta_approx', 'gamma_approx']].head(10)
+                                greeks_display.columns = ['Strike', 'Price', 'Delta*', 'Gamma*']
+                                st.dataframe(greeks_display.style.format({
+                                    'Price': '${:.2f}',
+                                    'Delta*': '{:.3f}',
+                                    'Gamma*': '{:.3f}'
+                                }))
+                        
+                        st.caption("*Approximate values for illustration")
 
-            all_data = []
-            for contract in selected_contracts:
-                calls_df, puts_df = st.session_state[f'options_data_{contract}']
-                if not calls_df.empty:
-                    all_data.append(calls_df.assign(optionType="Call", Contract=contract))
-                if not puts_df.empty:
-                    all_data.append(puts_df.assign(optionType="Put", Contract=contract))
-
-            if all_data:
-                combined_df = pd.concat(all_data, ignore_index=True)
-
-                # Filter toggle
-                option_filter = st.radio(
-                    "Select Option Type:",
-                    options=["Both", "Calls Only", "Puts Only"],
-                    horizontal=True
+    # TAB 3: Price Discovery & Historical Analysis
+    with tab3:
+        st.markdown("### 📈 Price Discovery & Historical Analysis")
+        
+        # Enhanced date controls
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            lookback_period = st.selectbox(
+                "📅 Analysis Period",
+                ["1M", "3M", "6M", "1Y", "2Y", "5Y"],
+                index=2
+            )
+        
+        with col2:
+            chart_type = st.selectbox(
+                "📊 Chart Type",
+                ["Price", "Returns", "Volatility", "Volume"],
+                index=0
+            )
+        
+        with col3:
+            overlay_futures = st.checkbox("🔗 Overlay Futures Curve", value=True)
+        
+        # Calculate date range
+        end_date = datetime.datetime.now()
+        period_map = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365, "2Y": 730, "5Y": 1825}
+        start_date = end_date - datetime.timedelta(days=period_map[lookback_period])
+        
+        if st.button("📊 Load Historical Analysis", type="primary"):
+            with st.spinner("📈 Loading historical data..."):
+                df_wti = load_oil_data('CL=F', 
+                                     start_date=start_date.strftime('%Y-%m-%d'), 
+                                     end_date=end_date.strftime('%Y-%m-%d'))
+            
+            if not df_wti.empty and 'Close' in df_wti.columns:
+                st.success(f"✅ Loaded {len(df_wti)} days of historical data")
+                
+                # Enhanced metrics calculation
+                latest_price = df_wti['Close'].dropna().iloc[-1]
+                price_change = (df_wti['Close'].dropna().iloc[-1] - df_wti['Close'].dropna().iloc[0])
+                percent_change = price_change / df_wti['Close'].dropna().iloc[0] * 100
+                
+                # Volatility calculations
+                returns = df_wti['Close'].pct_change().dropna()
+                volatility_ann = returns.std() * np.sqrt(252) * 100
+                
+                # Risk metrics
+                var_95 = np.percentile(returns, 5) * latest_price
+                max_drawdown = ((df_wti['Close'] / df_wti['Close'].expanding().max()) - 1).min() * 100
+                
+                # Display enhanced metrics
+                col1, col2, col3, col4, col5 = st.columns(5)
+                
+                with col1:
+                    st.metric("💰 Current Price", f"${latest_price:.2f}", 
+                             delta=f"{percent_change:+.1f}%")
+                
+                with col2:
+                    st.metric("📊 Volatility (Ann.)", f"{volatility_ann:.1f}%")
+                
+                with col3:
+                    st.metric("⚠️ VaR (95%)", f"${var_95:.2f}")
+                
+                with col4:
+                    st.metric("📉 Max Drawdown", f"{max_drawdown:.1f}%")
+                
+                with col5:
+                    avg_volume = df_wti['Volume'].mean() if 'Volume' in df_wti.columns else 0
+                    st.metric("📈 Avg Volume", f"{avg_volume:,.0f}")
+                
+                # Create comprehensive chart
+                fig_historical = make_subplots(
+                    rows=3, cols=1,
+                    subplot_titles=('Price Action', 'Daily Returns', 'Rolling Volatility'),
+                    vertical_spacing=0.08,
+                    row_heights=[0.5, 0.25, 0.25]
                 )
-
-                if option_filter == "Calls Only":
-                    filtered_df = combined_df[combined_df["optionType"] == "Call"]
-                elif option_filter == "Puts Only":
-                    filtered_df = combined_df[combined_df["optionType"] == "Put"]
-                else:
-                    filtered_df = combined_df
-
-                # Ensure numeric
-                filtered_df["strike"] = pd.to_numeric(filtered_df["strike"], errors="coerce")
-                filtered_df["askPrice"] = pd.to_numeric(filtered_df["askPrice"], errors="coerce")
-
-                if not filtered_df.empty and all(col in filtered_df.columns for col in ['strike', 'askPrice', 'Contract']):
-                    st.info("Overlay of Ask Price vs. Strike Price (with ATM line & annotation)")
-
-                    # Get ATM mapping from futures last price
-                    atm_map = dict(zip(merged_df['Contract'], merged_df['Last Price']))
-
-                    # Build overlay scatter
-                    fig = px.scatter(
-                        filtered_df,
-                        x="strike",
-                        y="askPrice",
-                        color="Contract",   # different color per contract
-                        symbol="optionType",  # Call vs Put symbols
-                        hover_data=["optionType", "bidPrice", "lastPrice", "volume", "openInterest"],
-                        labels={"strike": "Strike Price", "askPrice": "Ask Price"}
+                
+                # Price chart with technical indicators
+                fig_historical.add_trace(
+                    go.Scatter(x=df_wti['Date'], y=df_wti['Close'],
+                              mode='lines', name='WTI Price',
+                              line=dict(color='#615fff', width=2)),
+                    row=1, col=1
+                )
+                
+                # Add moving averages
+                if len(df_wti) > 20:
+                    df_wti['MA20'] = df_wti['Close'].rolling(20).mean()
+                    fig_historical.add_trace(
+                        go.Scatter(x=df_wti['Date'], y=df_wti['MA20'],
+                                  mode='lines', name='MA20',
+                                  line=dict(color='orange', width=1, dash='dash')),
+                        row=1, col=1
                     )
-
-                    fig.update_traces(marker=dict(size=7, opacity=0.7))
-
-                    # Add ATM lines + annotations
-                    y_max = filtered_df["askPrice"].max()
-                    for contract in selected_contracts:
-                        if contract in atm_map:
-                            atm_strike = atm_map[contract]
-
-                            # Add vertical ATM line
-                            fig.add_shape(
-                                type="line",
-                                x0=atm_strike, x1=atm_strike,
-                                y0=0, y1=y_max,
-                                line=dict(color="red", dash="dash"),
-                                xref="x", yref="y"
-                            )
-
-                            # Annotate ATM
-                            fig.add_annotation(
-                                x=atm_strike,
-                                y=y_max * 0.95,  # place near top
-                                text=f"ATM {atm_strike:.2f} ({contract})",
-                                showarrow=False,
-                                font=dict(color="red"),
-                                bgcolor="white",
-                                opacity=0.8
-                            )
-
-                    fig.update_layout(
-                        title="Options Across Selected Contracts (Ask Price, ATM Annotated)",
-                        template="plotly_white",
-                        legend_title="Contract",
-                        height=700
+                
+                if len(df_wti) > 50:
+                    df_wti['MA50'] = df_wti['Close'].rolling(50).mean()
+                    fig_historical.add_trace(
+                        go.Scatter(x=df_wti['Date'], y=df_wti['MA50'],
+                                  mode='lines', name='MA50',
+                                  line=dict(color='red', width=1, dash='dot')),
+                        row=1, col=1
                     )
+                
+                # Returns
+                fig_historical.add_trace(
+                    go.Bar(x=df_wti['Date'][1:], y=returns * 100,
+                          name='Daily Returns (%)',
+                          marker_color=np.where(returns > 0, '#10b981', '#ef4444')),
+                    row=2, col=1
+                )
+                
+                # Rolling volatility
+                rolling_vol = returns.rolling(21).std() * np.sqrt(252) * 100
+                fig_historical.add_trace(
+                    go.Scatter(x=df_wti['Date'][21:], y=rolling_vol[21:],
+                              mode='lines', name='21-Day Volatility',
+                              line=dict(color='#f59e0b', width=2)),
+                    row=3, col=1
+                )
+                
+                fig_historical.update_layout(
+                    height=800,
+                    title=f"WTI Crude Oil - {lookback_period} Analysis",
+                    template="plotly_dark",
+                    showlegend=True
+                )
+                
+                st.plotly_chart(fig_historical, use_container_width=True)
+                
+                # Statistical summary
+                if advanced_mode:
+                    st.markdown("#### 📊 Statistical Summary")
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        stats_df = pd.DataFrame({
+                            'Metric': ['Mean Return (Daily)', 'Std Dev (Daily)', 'Skewness', 'Kurtosis', 'Sharpe Ratio*'],
+                            'Value': [
+                                f"{returns.mean() * 100:.3f}%",
+                                f"{returns.std() * 100:.3f}%",
+                                f"{returns.skew():.3f}",
+                                f"{returns.kurtosis():.3f}",
+                                f"{returns.mean() / returns.std() * np.sqrt(252):.3f}"
+                            ]
+                        })
+                        st.dataframe(stats_df, hide_index=True)
+                    
+                    with col2:
+                        # Distribution plot
+                        fig_dist = go.Figure()
+                        fig_dist.add_trace(go.Histogram(x=returns * 100, nbinsx=50,
+                                                       name='Returns Distribution',
+                                                       marker_color='#615fff', opacity=0.7))
+                        fig_dist.update_layout(
+                            title="Returns Distribution",
+                            xaxis_title="Daily Returns (%)",
+                            yaxis_title="Frequency",
+                            template="plotly_dark",
+                            height=400
+                        )
+                        st.plotly_chart(fig_dist, use_container_width=True)
 
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("Not enough data available for 2D visualization.")
-            else:
-                st.warning("No options data available for visualization.")
-        else:
-            st.warning("Please wait for the initial contracts data to load.")
+    # TAB 4: Risk Analytics
+    with tab4:
+        st.markdown("### 🎯 Advanced Risk Analytics")
+        
+        if advanced_mode:
+            # Risk dashboard
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("#### ⚠️ Market Risk Indicators")
+                
+                # Calculate risk metrics from futures curve
+                if not merged_df.empty:
+                    # Term structure risk
+                    front_price = merged_df['Last Price'].iloc[0]
+                    back_price = merged_df['Last Price'].iloc[-1] if len(merged_df) > 1 else front_price
+                    
+                    contango_level = (back_price - front_price) / front_price * 100
+                    
+                    risk_indicators = pd.DataFrame({
+                        'Risk Factor': [
+                            'Contango/Backwardation',
+                            'Curve Steepness',
+                            'IV Term Structure',
+                            'Liquidity Risk'
+                        ],
+                        'Current Level': [
+                            f"{contango_level:+.2f}%",
+                            f"{abs(contango_level/len(merged_df)):.3f}",
+                            f"{merged_df['Futures Implied Volatility'].std():.1f}%" if 'Futures Implied Volatility' in merged_df.columns else "N/A",
+                            f"{merged_df['volume'].std()/merged_df['volume'].mean():.2f}" if 'volume' in merged_df.columns else "N/A"
+                        ],
+                        'Risk Level': [
+                            'High' if abs(contango_level) > 5 else 'Medium' if abs(contango_level) > 2 else 'Low',
+                            'High' if abs(contango_level/len(merged_df)) > 0.5 else 'Low',
+                            'High' if merged_df['Futures Implied Volatility'].std() > 5 else 'Medium' if merged_df['Futures Implied Volatility'].std() > 2 else 'Low' if 'Futures Implied Volatility' in merged_df.columns else 'Unknown',
+                            'High' if merged_df['volume'].std()/merged_df['volume'].mean() > 1 else 'Low' if 'volume' in merged_df.columns else 'Unknown'
+                        ]
+                    })
+                    
+                    # Color code the risk levels
+                    def color_risk_level(val):
+                        if val == 'High':
+                            return 'background-color: #fee2e2; color: #dc2626'
+                        elif val == 'Medium':
+                            return 'background-color: #fef3c7; color: #d97706'
+                        elif val == 'Low':
+                            return 'background-color: #dcfce7; color: #16a34a'
+                        else:
+                            return ''
+                    
+                    st.dataframe(
+                        risk_indicators.style.applymap(color_risk_level, subset=['Risk Level']),
+                        hide_index=True,
+                        use_container_width=True
+                    )
+            
+            with col2:
+                st.markdown("#### 📈 Portfolio Risk Metrics")
+                
+                # Position sizing calculator
+                portfolio_value = st.number_input("Portfolio Value ($)", min_value=10000, value=100000, step=10000)
+                risk_per_trade = st.slider("Risk per Trade (%)", 0.5, 5.0, 2.0, 0.1)
+                
+                # Calculate position sizes based on volatility
+                if not merged_df.empty and 'Futures Implied Volatility' in merged_df.columns:
+                    avg_iv = merged_df['Futures Implied Volatility'].mean()
+                    
+                    # Simple position sizing based on volatility
+                    risk_adjusted_size = (portfolio_value * risk_per_trade / 100) / (front_price * avg_iv / 100)
+                    
+                    st.metric("🎯 Suggested Position Size", f"{risk_adjusted_size:.0f} contracts")
+                    st.metric("💰 Notional Value", f"${risk_adjusted_size * front_price:,.0f}")
+                    st.metric("⚠️ Risk Amount", f"${portfolio_value * risk_per_trade / 100:,.0f}")
+                    
+                    # Risk/Reward visualization
+                    scenarios = np.array([-10, -5, -2, 0, 2, 5, 10])  # % price moves
+                    pnl = scenarios / 100 * front_price * risk_adjusted_size
+                    
+                    fig_scenarios = go.Figure()
+                    colors = ['#ef4444' if x < 0 else '#10b981' for x in pnl]
+                    
+                    fig_scenarios.add_trace(
+                        go.Bar(x=scenarios, y=pnl, marker_color=colors,
+                              name='P&L Scenarios')
+                    )
+                    
+                    fig_scenarios.update_layout(
+                        title="P&L Scenarios (% Price Moves)",
+                        xaxis_title="Price Move (%)",
+                        yaxis_title="P&L ($)",
+                        template="plotly_dark",
+                        height=400
+                    )
+                    
+                    st.plotly_chart(fig_scenarios, use_container_width=True)
+            
+            # Correlation analysis
+            st.markdown("#### 🔗 Inter-Contract Correlation Analysis")
+            
+            # Create correlation matrix from price data
+            if len(merged_df) > 3:
+                price_matrix = merged_df[['Contract', 'Last Price']].set_index('Contract').T
+                
+                # Simulate some correlation (in real app, you'd use historical data)
+                np.random.seed(42)
+                corr_matrix = np.random.uniform(0.7, 0.95, (len(price_matrix.columns), len(price_matrix.columns)))
+                np.fill_diagonal(corr_matrix, 1.0)
+                corr_df = pd.DataFrame(corr_matrix, 
+                                     index=price_matrix.columns[:len(corr_matrix)], 
+                                     columns=price_matrix.columns[:len(corr_matrix)])
+                
+                fig_corr = px.imshow(corr_df, 
+                                   text_auto=True, 
+                                   aspect="auto",
+                                   color_continuous_scale='RdYlBu_r',
+                                   title="Contract Correlation Matrix*")
+                fig_corr.update_layout(height=500, template="plotly_dark")
+                st.plotly_chart(fig_corr, use_container_width=True)
+                st.caption("*Simulated correlations for demonstration")
 
+    # TAB 5: Contract Deep Dive
+    with tab5:
+        st.markdown("### 🔍 Individual Contract Deep Dive")
+        
+        # Enhanced contract selector with search
+        selected_contract = st.selectbox(
+            "🎯 Select Contract for Detailed Analysis:",
+            options=merged_df['Contract'].tolist() if not merged_df.empty else [],
+            index=0,
+            help="Choose a contract for comprehensive analysis"
+        )
+        
+        if selected_contract and f'options_data_{selected_contract}' in st.session_state:
+            calls_df, puts_df = st.session_state[f'options_data_{selected_contract}']
+            
+            # Contract overview
+            contract_data = merged_df[merged_df['Contract'] == selected_contract].iloc[0]
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("📊 Last Price", f"${contract_data['Last Price']:.2f}")
+                st.metric("📈 Price Change", f"{contract_data.get('priceChange', 0):+.2f}")
+            
+            with col2:
+                st.metric("📊 Volume", f"{contract_data.get('volume', 0):,}")
+                st.metric("🔢 Open Interest", f"{contract_data.get('openInterest', 0):,}")
+            
+            with col3:
+                days_to_expiry = contract_data.get('Options Days to Expiry', 0)
+                st.metric("⏰ Days to Expiry", f"{days_to_expiry}")
+                
+                iv = contract_data.get('Futures Implied Volatility', 0)
+                st.metric("📊 Implied Vol", f"{iv:.1f}%")
+            
+            with col4:
+                # Calculate moneyness for ATM options
+                underlying = contract_data['Last Price']
+                if not calls_df.empty:
+                    calls_df['strike_num'] = pd.to_numeric(calls_df['strike'], errors='coerce')
+                    atm_call = calls_df.loc[(calls_df['strike_num'] - underlying).abs().idxmin()]
+                    st.metric("💰 ATM Call", f"${atm_call['lastPrice']:.2f}")
+                
+                if not puts_df.empty:
+                    puts_df['strike_num'] = pd.to_numeric(puts_df['strike'], errors='coerce')
+                    atm_put = puts_df.loc[(puts_df['strike_num'] - underlying).abs().idxmin()]
+                    st.metric("💰 ATM Put", f"${atm_put['lastPrice']:.2f}")
+            
+            # Options chain with enhanced visualization
+            if not calls_df.empty or not puts_df.empty:
+                st.markdown("#### 🔗 Enhanced Options Chain")
+                
+                # Create sophisticated options visualization
+                fig_chain = go.Figure()
+                
+                if not calls_df.empty:
+                    fig_chain.add_trace(
+                        go.Scatter(x=calls_df['strike'], y=calls_df['lastPrice'],
+                                  mode='markers', name='Calls',
+                                  marker=dict(size=calls_df['volume']/10, 
+                                            color='#10b981', opacity=0.7,
+                                            sizemode='area', sizeref=2),
+                                  hovertemplate='<b>Call</b><br>Strike: $%{x}<br>Price: $%{y}<br>Volume: %{marker.size}<extra></extra>')
+                    )
+                
+                if not puts_df.empty:
+                    fig_chain.add_trace(
+                        go.Scatter(x=puts_df['strike'], y=puts_df['lastPrice'],
+                                  mode='markers', name='Puts',
+                                  marker=dict(size=puts_df['volume']/10,
+                                            color='#ef4444', opacity=0.7,
+                                            sizemode='area', sizeref=2),
+                                  hovertemplate='<b>Put</b><br>Strike: $%{x}<br>Price: $%{y}<br>Volume: %{marker.size}<extra></extra>')
+                    )
+                
+                # Add ATM line
+                fig_chain.add_vline(x=underlying, line_dash="dash", 
+                                   line_color="white", annotation_text="ATM")
+                
+                fig_chain.update_layout(
+                    title=f"Options Chain - {selected_contract} (Bubble size = Volume)",
+                    xaxis_title="Strike Price ($)",
+                    yaxis_title="Option Price ($)",
+                    template="plotly_dark",
+                    height=600
+                )
+                
+                st.plotly_chart(fig_chain, use_container_width=True)
+                
+                # Detailed options tables
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if not calls_df.empty:
+                        st.markdown("##### 📞 Calls Detail")
+                        calls_display = calls_df[['strike', 'lastPrice', 'bidPrice', 'askPrice', 'volume', 'openInterest']].copy()
+                        calls_display.columns = ['Strike', 'Last', 'Bid', 'Ask', 'Volume', 'OI']
+                        st.dataframe(calls_display.head(15), use_container_width=True)
+                
+                with col2:
+                    if not puts_df.empty:
+                        st.markdown("##### 📉 Puts Detail")
+                        puts_display = puts_df[['strike', 'lastPrice', 'bidPrice', 'askPrice', 'volume', 'openInterest']].copy()
+                        puts_display.columns = ['Strike', 'Last', 'Bid', 'Ask', 'Volume', 'OI']
+                        st.dataframe(puts_display.head(15), use_container_width=True)
+
+    # TAB 6: Portfolio Tools
+    with tab6:
+        st.markdown("### 📋 Portfolio Management Tools")
+        
+        # Position tracker
+        st.markdown("#### 💼 Position Tracker")
+        
+        # Initialize session state for positions
+        if 'positions' not in st.session_state:
+            st.session_state.positions = pd.DataFrame(columns=[
+                'Contract', 'Type', 'Strike', 'Quantity', 'Entry_Price', 'Current_Price', 'PnL'
+            ])
+        
+        # Add position form
+        with st.expander("➕ Add New Position"):
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                pos_contract = st.selectbox("Contract", merged_df['Contract'].tolist())
+                pos_type = st.selectbox("Type", ["Future", "Call", "Put"])
+            
+            with col2:
+                pos_strike = st.number_input("Strike (if option)", min_value=0.0, value=70.0)
+                pos_quantity = st.number_input("Quantity", min_value=1, value=1)
+            
+            with col3:
+                pos_entry = st.number_input("Entry Price", min_value=0.0, value=75.0)
+                
+            with col4:
+                st.write("")  # Spacing
+                if st.button("Add Position", type="primary"):
+                    # Get current price
+                    current_price = merged_df[merged_df['Contract'] == pos_contract]['Last Price'].iloc[0] if pos_type == "Future" else pos_entry
+                    
+                    # Calculate P&L
+                    if pos_type == "Future":
+                        pnl = (current_price - pos_entry) * pos_quantity
+                    else:
+                        pnl = 0  # Would need real options pricing for accurate P&L
+                    
+                    new_position = {
+                        'Contract': pos_contract,
+                        'Type': pos_type,
+                        'Strike': pos_strike if pos_type != "Future" else None,
+                        'Quantity': pos_quantity,
+                        'Entry_Price': pos_entry,
+                        'Current_Price': current_price,
+                        'PnL': pnl
+                    }
+                    
+                    st.session_state.positions = pd.concat([
+                        st.session_state.positions,
+                        pd.DataFrame([new_position])
+                    ], ignore_index=True)
+                    
+                    st.success("Position added!")
+        
+        # Display positions
+        if not st.session_state.positions.empty:
+            st.markdown("#### 📊 Current Positions")
+            
+            # Format the positions dataframe
+            positions_display = st.session_state.positions.copy()
+            positions_display['Entry_Price'] = positions_display['Entry_Price'].apply(lambda x: f"${x:.2f}")
+            positions_display['Current_Price'] = positions_display['Current_Price'].apply(lambda x: f"${x:.2f}")
+            positions_display['PnL'] = positions_display['PnL'].apply(lambda x: f"${x:+.2f}")
+            
+            st.dataframe(
+                positions_display.style.applymap(
+                    lambda x: 'color: green' if '+' in str(x) else 'color: red' if '-' in str(x) else '',
+                    subset=['PnL']
+                ),
+                use_container_width=True
+            )
+            
+            # Portfolio summary
+            total_pnl = st.session_state.positions['PnL'].sum()
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Total P&L", f"${total_pnl:+,.2f}")
+            
+            with col2:
+                st.metric("Number of Positions", len(st.session_state.positions))
+            
+            with col3:
+                if st.button("Clear All Positions", type="secondary"):
+                    st.session_state.positions = pd.DataFrame(columns=[
+                        'Contract', 'Type', 'Strike', 'Quantity', 'Entry_Price', 'Current_Price', 'PnL'
+                    ])
+                    st.rerun()
+        
+        # Market alerts
+        st.markdown("#### 🚨 Market Alerts")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            alert_contract = st.selectbox("Alert Contract", merged_df['Contract'].tolist(), key="alert_contract")
+            alert_condition = st.selectbox("Condition", ["Price Above", "Price Below", "Volume Above"])
+            alert_value = st.number_input("Alert Value", min_value=0.0, value=75.0)
+        
+        with col2:
+            st.write("")  # Spacing
+            if st.button("Set Alert", type="primary"):
+                st.success(f"Alert set: {alert_contract} {alert_condition} {alert_value}")
+                # In a real app, you'd store this alert and check it periodically
+        
+        # Export functionality
+        st.markdown("#### 📥 Data Export")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("📊 Export Futures Data"):
+                csv = merged_df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f"futures_data_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+        
+        with col2:
+            if not st.session_state.positions.empty:
+                if st.button("💼 Export Positions"):
+                    positions_csv = st.session_state.positions.to_csv(index=False)
+                    st.download_button(
+                        label="Download Positions",
+                        data=positions_csv,
+                        file_name=f"positions_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
+                        mime="text/csv"
+                    )
+        
+        with col3:
+            if st.button("📈 Generate Report"):
+                st.info("📊 Comprehensive report generation coming soon!")
+
+    # Auto-refresh functionality
+    if auto_refresh:
+        time.sleep(30)
+        st.rerun()
+
+# Footer with enhanced information
+st.markdown("---")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.markdown("**📊 Data Sources:**")
+    st.markdown("- Barchart.com (Futures & Options)")
+    st.markdown("- Yahoo Finance (Historical)")
+
+with col2:
+    st.markdown("**🔄 Last Updated:**")
+    st.markdown(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+with col3:
+    st.markdown("**⚙️ System Status:**")
+    if advanced_mode:
+        st.markdown("🟢 Advanced Analytics: ON")
+    else:
+        st.markdown("🟡 Basic Mode: ON")
 
 if __name__ == "__main__":
     main()
-
-# Footer
-st.markdown("---")
-st.markdown("**Data Sources:** Barchart.com, Yahoo Finance | **Last Updated:** " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
