@@ -14,6 +14,8 @@ from curl_cffi import requests as curl_requests
 from scipy import stats
 from scipy.interpolate import interp1d
 import warnings
+import matplotlib
+
 warnings.filterwarnings('ignore')
 
 # Set page config with enhanced styling
