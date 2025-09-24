@@ -635,6 +635,37 @@ def main():
                     st.metric("📞 Call Volume", f"{flow_metrics.get('call_volume', 0):,}")
                     st.metric("📉 Put Volume", f"{flow_metrics.get('put_volume', 0):,}")
                 
+                colA, colB, colC, colD = st.columns(4)
+
+                with colA:
+                    st.metric("📊 Last Price", f"${contract_data['Last Price']:.2f}")
+                    st.metric("📈 Price Change", f"{contract_data.get('priceChange', 0):+.2f}")
+                
+                with colB:
+                    st.metric("📊 Volume", f"{contract_data.get('volume', 0):,}")
+                    st.metric("🔢 Open Interest", f"{contract_data.get('openInterest', 0):,}")
+                
+                with colC:
+                    days_to_expiry = contract_data.get('Options Days to Expiry', 0)
+                    st.metric("⏰ Days to Expiry", f"{days_to_expiry}")
+                    
+                    iv = contract_data.get('Futures Implied Volatility', 0)
+                    st.metric("📊 Implied Vol", f"{iv:.1f}%")
+                
+                with colD:
+                    # Calculate moneyness for ATM options
+                    underlying = contract_data['Last Price']
+                    if not calls_df.empty:
+                        calls_df['strike_num'] = pd.to_numeric(calls_df['strike'], errors='coerce')
+                        atm_call = calls_df.loc[(calls_df['strike_num'] - underlying).abs().idxmin()]
+                        st.metric("💰 ATM Call", f"${atm_call['bidPrice']:.2f}")
+                    
+                    if not puts_df.empty:
+                        puts_df['strike_num'] = pd.to_numeric(puts_df['strike'], errors='coerce')
+                        atm_put = puts_df.loc[(puts_df['strike_num'] - underlying).abs().idxmin()]
+                        st.metric("💰 ATM Put", f"${atm_put['bidPrice']:.2f}")
+                
+
                 # Options chain visualization
                 if not calls_df.empty and not puts_df.empty:
 
@@ -926,7 +957,7 @@ def main():
                         st.plotly_chart(fig_dist, use_container_width=True)
 
 
-    # TAB 5: Contract Deep Dive
+    # TAB 4: Contract Deep Dive
     with tab4:
         st.markdown("### 🔍 Individual Contract Deep Dive")
         
