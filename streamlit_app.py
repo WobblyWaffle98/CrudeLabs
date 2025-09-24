@@ -503,11 +503,10 @@ def main():
             st.success("✅ Options data loaded successfully!")
 
     # Enhanced tabbed interface
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Market Analysis", 
         "⚡ Options Flow", 
         "📈 Price Discovery", 
-        "🎯 Risk Analytics",
         "🔍 Contract Deep Dive",
     ])
     
@@ -926,129 +925,9 @@ def main():
                         )
                         st.plotly_chart(fig_dist, use_container_width=True)
 
-    # TAB 4: Risk Analytics
-    with tab4:
-        st.markdown("### 🎯 Advanced Risk Analytics")
-        
-        if advanced_mode:
-            # Risk dashboard
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown("#### ⚠️ Market Risk Indicators")
-                
-                # Calculate risk metrics from futures curve
-                if not merged_df.empty:
-                    # Term structure risk
-                    front_price = merged_df['Last Price'].iloc[0]
-                    back_price = merged_df['Last Price'].iloc[-1] if len(merged_df) > 1 else front_price
-                    
-                    contango_level = (back_price - front_price) / front_price * 100
-                    
-                    risk_indicators = pd.DataFrame({
-                        'Risk Factor': [
-                            'Contango/Backwardation',
-                            'Curve Steepness',
-                            'IV Term Structure',
-                            'Liquidity Risk'
-                        ],
-                        'Current Level': [
-                            f"{contango_level:+.2f}%",
-                            f"{abs(contango_level/len(merged_df)):.3f}",
-                            f"{merged_df['Futures Implied Volatility'].std():.1f}%" if 'Futures Implied Volatility' in merged_df.columns else "N/A",
-                            f"{merged_df['volume'].std()/merged_df['volume'].mean():.2f}" if 'volume' in merged_df.columns else "N/A"
-                        ],
-                        'Risk Level': [
-                            'High' if abs(contango_level) > 5 else 'Medium' if abs(contango_level) > 2 else 'Low',
-                            'High' if abs(contango_level/len(merged_df)) > 0.5 else 'Low',
-                            'High' if merged_df['Futures Implied Volatility'].std() > 5 else 'Medium' if merged_df['Futures Implied Volatility'].std() > 2 else 'Low' if 'Futures Implied Volatility' in merged_df.columns else 'Unknown',
-                            'High' if merged_df['volume'].std()/merged_df['volume'].mean() > 1 else 'Low' if 'volume' in merged_df.columns else 'Unknown'
-                        ]
-                    })
-                    
-                    # Color code the risk levels
-                    def color_risk_level(val):
-                        if val == 'High':
-                            return 'background-color: #fee2e2; color: #dc2626'
-                        elif val == 'Medium':
-                            return 'background-color: #fef3c7; color: #d97706'
-                        elif val == 'Low':
-                            return 'background-color: #dcfce7; color: #16a34a'
-                        else:
-                            return ''
-                    
-                    st.dataframe(
-                        risk_indicators.style.applymap(color_risk_level, subset=['Risk Level']),
-                        hide_index=True,
-                        use_container_width=True
-                    )
-            
-            with col2:
-                st.markdown("#### 📈 Portfolio Risk Metrics")
-                
-                # Position sizing calculator
-                portfolio_value = st.number_input("Portfolio Value ($)", min_value=10000, value=100000, step=10000)
-                risk_per_trade = st.slider("Risk per Trade (%)", 0.5, 5.0, 2.0, 0.1)
-                
-                # Calculate position sizes based on volatility
-                if not merged_df.empty and 'Futures Implied Volatility' in merged_df.columns:
-                    avg_iv = merged_df['Futures Implied Volatility'].mean()
-                    
-                    # Simple position sizing based on volatility
-                    risk_adjusted_size = (portfolio_value * risk_per_trade / 100) / (front_price * avg_iv / 100)
-                    
-                    st.metric("🎯 Suggested Position Size", f"{risk_adjusted_size:.0f} contracts")
-                    st.metric("💰 Notional Value", f"${risk_adjusted_size * front_price:,.0f}")
-                    st.metric("⚠️ Risk Amount", f"${portfolio_value * risk_per_trade / 100:,.0f}")
-                    
-                    # Risk/Reward visualization
-                    scenarios = np.array([-10, -5, -2, 0, 2, 5, 10])  # % price moves
-                    pnl = scenarios / 100 * front_price * risk_adjusted_size
-                    
-                    fig_scenarios = go.Figure()
-                    colors = ['#ef4444' if x < 0 else '#10b981' for x in pnl]
-                    
-                    fig_scenarios.add_trace(
-                        go.Bar(x=scenarios, y=pnl, marker_color=colors,
-                              name='P&L Scenarios')
-                    )
-                    
-                    fig_scenarios.update_layout(
-                        title="P&L Scenarios (% Price Moves)",
-                        xaxis_title="Price Move (%)",
-                        yaxis_title="P&L ($)",
-                        template="plotly_dark",
-                        height=400
-                    )
-                    
-                    st.plotly_chart(fig_scenarios, use_container_width=True)
-            
-            # Correlation analysis
-            st.markdown("#### 🔗 Inter-Contract Correlation Analysis")
-            
-            # Create correlation matrix from price data
-            if len(merged_df) > 3:
-                price_matrix = merged_df[['Contract', 'Last Price']].set_index('Contract').T
-                
-                # Simulate some correlation (in real app, you'd use historical data)
-                np.random.seed(42)
-                corr_matrix = np.random.uniform(0.7, 0.95, (len(price_matrix.columns), len(price_matrix.columns)))
-                np.fill_diagonal(corr_matrix, 1.0)
-                corr_df = pd.DataFrame(corr_matrix, 
-                                     index=price_matrix.columns[:len(corr_matrix)], 
-                                     columns=price_matrix.columns[:len(corr_matrix)])
-                
-                fig_corr = px.imshow(corr_df, 
-                                   text_auto=True, 
-                                   aspect="auto",
-                                   color_continuous_scale='RdYlBu_r',
-                                   title="Contract Correlation Matrix*")
-                fig_corr.update_layout(height=500, template="plotly_dark")
-                st.plotly_chart(fig_corr, use_container_width=True)
-                st.caption("*Simulated correlations for demonstration")
 
     # TAB 5: Contract Deep Dive
-    with tab5:
+    with tab4:
         st.markdown("### 🔍 Individual Contract Deep Dive")
         
         # Enhanced contract selector with search
