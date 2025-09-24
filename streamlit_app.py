@@ -638,41 +638,50 @@ def main():
                 
                 # Options chain visualization
                 if not calls_df.empty and not puts_df.empty:
+                    # Get ATM price
+                    underlying_price = merged_df[merged_df['Contract'] == selected_contract]['Last Price'].iloc[0]
+
+                    # Filter strikes within ±20 of ATM
+                    lower_bound = underlying_price - 20
+                    upper_bound = underlying_price + 20
+
+                    calls_near_atm = calls_df[(calls_df['strike'] >= lower_bound) & (calls_df['strike'] <= upper_bound)]
+                    puts_near_atm = puts_df[(puts_df['strike'] >= lower_bound) & (puts_df['strike'] <= upper_bound)]
+
                     # Enhanced options chain chart
                     fig_options = make_subplots(
                         rows=1, cols=2,
                         subplot_titles=('Calls Volume', 'Puts Volume'),
                         shared_yaxes=True
                     )
-                    
+
                     # Add volume bars for calls
                     fig_options.add_trace(
-                        go.Bar(x=calls_df['volume'], y=calls_df['strike'],
-                              orientation='h', name='Calls', 
-                              marker_color='#10b981', opacity=0.7),
+                        go.Bar(x=calls_near_atm['volume'], y=calls_near_atm['strike'],
+                            orientation='h', name='Calls', 
+                            marker_color='#10b981', opacity=0.7),
                         row=1, col=1
                     )
-                    
+
                     # Add volume bars for puts (negative for visual separation)
                     fig_options.add_trace(
-                        go.Bar(x=-puts_df['volume'], y=puts_df['strike'],
-                              orientation='h', name='Puts',
-                              marker_color='#ef4444', opacity=0.7),
+                        go.Bar(x=-puts_near_atm['volume'], y=puts_near_atm['strike'],
+                            orientation='h', name='Puts',
+                            marker_color='#ef4444', opacity=0.7),
                         row=1, col=2
                     )
-                    
+
                     # Add ATM line
-                    underlying_price = merged_df[merged_df['Contract'] == selected_contract]['Last Price'].iloc[0]
                     fig_options.add_hline(y=underlying_price, line_dash="dash", 
                                         line_color="white", annotation_text="ATM")
-                    
+
                     fig_options.update_layout(
                         title=f"Options Flow Analysis - {selected_contract}",
                         height=600,
                         template="plotly_dark",
                         showlegend=True
                     )
-                    
+
                     st.plotly_chart(fig_options, use_container_width=True)
                     
                     # Greeks analysis if advanced mode
