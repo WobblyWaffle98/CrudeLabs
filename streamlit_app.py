@@ -725,7 +725,7 @@ def main():
                     
                     # Greeks analysis if advanced mode
                     if advanced_mode:
-                        st.markdown("#### 🔬 Greeks Analysis")
+                        st.markdown("#### 🔬 Option Ladder")
 
                         # Ensure strike is numeric
                         calls_df['strike'] = pd.to_numeric(calls_df['strike'], errors='coerce')
@@ -786,6 +786,47 @@ def main():
                                 )
 
                         st.caption("*Approximate values")
+
+                        # Options chain with enhanced visualization
+                        if not calls_df.empty or not puts_df.empty:
+                            st.markdown("#### 🔗 Enhanced Options Chain")
+                            
+                            # Create sophisticated options visualization
+                            fig_chain = go.Figure()
+                            
+                            if not calls_df.empty:
+                                fig_chain.add_trace(
+                                    go.Scatter(x=calls_df['strike'], y=calls_df['bidPrice'],
+                                            mode='markers', name='Calls',
+                                            marker=dict(size=calls_df['volume']/10, 
+                                                        color='#10b981', opacity=0.7,
+                                                        sizemode='area', sizeref=2),
+                                            hovertemplate='<b>Call</b><br>Strike: $%{x}<br>Price: $%{y}<br>Volume: %{marker.size}<extra></extra>')
+                                )
+                            
+                            if not puts_df.empty:
+                                fig_chain.add_trace(
+                                    go.Scatter(x=puts_df['strike'], y=puts_df['bidPrice'],
+                                            mode='markers', name='Puts',
+                                            marker=dict(size=puts_df['volume']/10,
+                                                        color='#ef4444', opacity=0.7,
+                                                        sizemode='area', sizeref=2),
+                                            hovertemplate='<b>Put</b><br>Strike: $%{x}<br>Price: $%{y}<br>Volume: %{marker.size}<extra></extra>')
+                                )
+                            
+                            # Add ATM line
+                            fig_chain.add_vline(x=underlying, line_dash="dash", 
+                                            line_color="white", annotation_text="ATM")
+                            
+                            fig_chain.update_layout(
+                                title=f"Options Chain - {selected_contract} (Bubble size = Volume)",
+                                xaxis_title="Strike Price ($)",
+                                yaxis_title="Option Price ($)",
+                                template="plotly_dark",
+                                height=600
+                            )
+                            
+                            st.plotly_chart(fig_chain, use_container_width=True)
 
 
     # TAB 3: Price Discovery & Historical Analysis
