@@ -138,7 +138,7 @@ def calculate_greeks_approximation(options_df, underlying_price, risk_free_rate=
     
     # Ensure numeric types
     df['strike'] = pd.to_numeric(df['strike'], errors='coerce')
-    df['lastPrice'] = pd.to_numeric(df['lastPrice'], errors='coerce')
+    df['bidPrice'] = pd.to_numeric(df['bidPrice'], errors='coerce')
     
     # Simple Delta approximation (closer to ATM = higher delta)
     df['moneyness'] = df['strike'] / underlying_price
@@ -235,8 +235,8 @@ def fetch_detailed_options_data(symbols):
                         df['strike'] = df['strike'].astype(str).str.replace(r'[CP]', '', regex=True)
                         df['volume'] = pd.to_numeric(df['volume'], errors='coerce').fillna(0).astype(int)
                         df['openInterest'] = pd.to_numeric(df['openInterest'], errors='coerce').fillna(0).astype(int)
-                        df['lastPrice'] = df['lastPrice'].astype(str).str.replace(r'[a-zA-Z]', '', regex=True)
-                        df['lastPrice'] = pd.to_numeric(df['lastPrice'], errors='coerce').fillna(0)
+                        df['bidPrice'] = df['bidPrice'].astype(str).str.replace(r'[a-zA-Z]', '', regex=True)
+                        df['bidPrice'] = pd.to_numeric(df['bidPrice'], errors='coerce').fillna(0)
                         
                         # Clean other price fields
                         for col in ['priceChange', 'bidPrice', 'askPrice']:
@@ -472,14 +472,14 @@ def main():
     
     # Merge data
     if not options_df.empty:
-        merged_df = options_df.merge(df[['symbol', 'lastPrice', 'priceChange', 'volume', 'openInterest']], 
+        merged_df = options_df.merge(df[['symbol', 'bidPrice', 'priceChange', 'volume', 'openInterest']], 
                                    left_on='Contract', 
                                    right_on='symbol', 
                                    how='left')
-        merged_df = merged_df.rename(columns={'lastPrice': 'Last Price'})
+        merged_df = merged_df.rename(columns={'bidPrice': 'Bid Price'})
     else:
-        merged_df = df[['symbol', 'lastPrice', 'priceChange', 'volume', 'openInterest']].head(num_contracts).copy()
-        merged_df = merged_df.rename(columns={'symbol': 'Contract', 'lastPrice': 'Last Price'})
+        merged_df = df[['symbol', 'bidPrice', 'priceChange', 'volume', 'openInterest']].head(num_contracts).copy()
+        merged_df = merged_df.rename(columns={'symbol': 'Contract', 'bidPrice': 'Bid Price'})
         merged_df['Expiration Date'] = 'N/A'
         merged_df['Options Days to Expiry'] = 0
         merged_df['Futures Implied Volatility'] = 0
@@ -734,7 +734,7 @@ def main():
                         with col1:
                             if not calls_near_atm.empty:
                                 st.markdown("##### 📈 Calls Greeks")
-                                greeks_display = calls_near_atm[['strike', 'lastPrice', 'delta_approx', 'gamma_approx']].copy()
+                                greeks_display = calls_near_atm[['strike', 'bidPrice', 'delta_approx', 'gamma_approx']].copy()
                                 greeks_display.columns = ['Strike', 'Price', 'Delta*', 'Gamma*']
                                 st.dataframe(
                                     greeks_display.style.format({
@@ -747,7 +747,7 @@ def main():
                         with col2:
                             if not puts_near_atm.empty:
                                 st.markdown("##### 📉 Puts Greeks")
-                                greeks_display = puts_near_atm[['strike', 'lastPrice', 'delta_approx', 'gamma_approx']].copy()
+                                greeks_display = puts_near_atm[['strike', 'bidPrice', 'delta_approx', 'gamma_approx']].copy()
                                 greeks_display.columns = ['Strike', 'Price', 'Delta*', 'Gamma*']
                                 st.dataframe(
                                     greeks_display.style.format({
@@ -1088,12 +1088,12 @@ def main():
                 if not calls_df.empty:
                     calls_df['strike_num'] = pd.to_numeric(calls_df['strike'], errors='coerce')
                     atm_call = calls_df.loc[(calls_df['strike_num'] - underlying).abs().idxmin()]
-                    st.metric("💰 ATM Call", f"${atm_call['lastPrice']:.2f}")
+                    st.metric("💰 ATM Call", f"${atm_call['bidPrice']:.2f}")
                 
                 if not puts_df.empty:
                     puts_df['strike_num'] = pd.to_numeric(puts_df['strike'], errors='coerce')
                     atm_put = puts_df.loc[(puts_df['strike_num'] - underlying).abs().idxmin()]
-                    st.metric("💰 ATM Put", f"${atm_put['lastPrice']:.2f}")
+                    st.metric("💰 ATM Put", f"${atm_put['bidPrice']:.2f}")
             
             # Options chain with enhanced visualization
             if not calls_df.empty or not puts_df.empty:
@@ -1104,7 +1104,7 @@ def main():
                 
                 if not calls_df.empty:
                     fig_chain.add_trace(
-                        go.Scatter(x=calls_df['strike'], y=calls_df['lastPrice'],
+                        go.Scatter(x=calls_df['strike'], y=calls_df['bidPrice'],
                                   mode='markers', name='Calls',
                                   marker=dict(size=calls_df['volume']/10, 
                                             color='#10b981', opacity=0.7,
@@ -1114,7 +1114,7 @@ def main():
                 
                 if not puts_df.empty:
                     fig_chain.add_trace(
-                        go.Scatter(x=puts_df['strike'], y=puts_df['lastPrice'],
+                        go.Scatter(x=puts_df['strike'], y=puts_df['bidPrice'],
                                   mode='markers', name='Puts',
                                   marker=dict(size=puts_df['volume']/10,
                                             color='#ef4444', opacity=0.7,
