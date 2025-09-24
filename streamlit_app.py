@@ -20,7 +20,7 @@ warnings.filterwarnings('ignore')
 
 # Set page config with enhanced styling
 st.set_page_config(
-    page_title="Advanced Futures Analytics Dashboard",
+    page_title="CrudeLabs",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -77,7 +77,7 @@ st.markdown("""
 # Enhanced title with gradient background
 st.markdown("""
 <div class="main-header">
-    <h1 style="color: white; margin: 0;">📊 Advanced Futures Analytics Dashboard</h1>
+    <h1 style="color: white; margin: 0;">📊 CrudeLabs</h1>
     <p style="color: #e2e8f0; margin: 0.5rem 0 0 0;">Comprehensive crude oil futures and options analysis platform</p>
 </div>
 """, unsafe_allow_html=True)
