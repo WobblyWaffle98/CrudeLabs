@@ -848,7 +848,7 @@ def main():
 
         def get_next_trade_no():
             df = get_trades()
-            if df.empty:
+            if df.empty or 'trade_no' not in df.columns:
                 return 1
             return int(df['trade_no'].max()) + 1
 
