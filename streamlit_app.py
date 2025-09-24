@@ -10,7 +10,7 @@ import time
 import numpy as np
 import yfinance as yf
 from curl_cffi import requests as curl_requests
-import sqlite3
+from pymongo import MongoClient
 
 # Set page config
 st.set_page_config(
@@ -801,66 +801,30 @@ def main():
     with tab5:
         st.subheader("📊 Trade Ledger")
 
-        DB_FILE = "trades.db"
+        # --- MongoDB Connection via Streamlit Secrets ---
+        MONGO_URI = st.secrets["mongodb"]["uri"]
+        client = MongoClient(MONGO_URI)
+
+        db = client["OptionTrades_db"]
+        collection = db["OptionTrades"]
 
         # --- DB Helpers ---
-        def init_db():
-            conn = sqlite3.connect(DB_FILE)
-            conn.execute("""
-            CREATE TABLE IF NOT EXISTS trades (
-                trade_no INTEGER PRIMARY KEY,
-                trade_date TEXT,
-                underlying TEXT,
-                tenure TEXT,
-                expiration_date TEXT,
-                days_to_expiry INTEGER,
-                expired TEXT,
-                option_type TEXT,
-                direction TEXT,
-                strike_price REAL,
-                entry_price REAL,
-                entry_price_bbl REAL,
-                closing_price REAL,
-                closing_price_bbl REAL,
-                close_date TEXT,
-                settlement_price REAL,
-                commission REAL,
-                payoff_settlement REAL,
-                initial_premium REAL,
-                final_pnl REAL
-            );
-            """)
-            conn.commit()
-            return conn
-
         def get_trades():
-            conn = sqlite3.connect(DB_FILE)
-            return pd.read_sql("SELECT * FROM trades", conn)
+            trades = list(collection.find({}, {"_id": 0}))  # exclude Mongo _id field
+            return pd.DataFrame(trades)
 
         def add_trade(trade):
-            conn = sqlite3.connect(DB_FILE)
-            cols = ",".join(trade.keys())
-            placeholders = ",".join(["?"] * len(trade))
-            conn.execute(
-                f"INSERT INTO trades ({cols}) VALUES ({placeholders})", 
-                tuple(trade.values())
-            )
-            conn.commit()
+            collection.insert_one(trade)
 
         def delete_trade(trade_no):
-            conn = sqlite3.connect(DB_FILE)
-            conn.execute("DELETE FROM trades WHERE trade_no = ?", (trade_no,))
-            conn.commit()
+            collection.delete_one({"trade_no": trade_no})
 
-        # --- Initialize DB ---
-        init_db()
-
-        # View trades
+        # --- View trades ---
         st.subheader("All Trades")
         df = get_trades()
         st.dataframe(df, use_container_width=True)
 
-        # Add trade
+        # --- Add trade ---
         st.subheader("➕ Add New Trade")
         with st.form("add_trade_form"):
             trade_no = st.number_input("Trade No", step=1)
@@ -877,7 +841,7 @@ def main():
             submitted = st.form_submit_button("Add Trade")
             if submitted:
                 add_trade({
-                    "trade_no": trade_no,
+                    "trade_no": int(trade_no),
                     "trade_date": trade_date.isoformat(),
                     "underlying": underlying,
                     "tenure": tenure,
@@ -886,8 +850,8 @@ def main():
                     "expired": None,
                     "option_type": option_type,
                     "direction": direction,
-                    "strike_price": strike_price,
-                    "entry_price": entry_price,
+                    "strike_price": float(strike_price),
+                    "entry_price": float(entry_price),
                     "entry_price_bbl": None,
                     "closing_price": None,
                     "closing_price_bbl": None,
@@ -896,18 +860,16 @@ def main():
                     "commission": None,
                     "payoff_settlement": None,
                     "initial_premium": None,
-                    "final_pnl": final_pnl
+                    "final_pnl": float(final_pnl)
                 })
                 st.success("Trade added!")
 
-        # Delete trade
-        st.subheader("❌ Delete Trade")
-        trade_no_to_delete = st.number_input("Trade No to Delete", step=1)
-        if st.button("Delete"):
-            delete_trade(trade_no_to_delete)
-            st.warning(f"Deleted Trade {trade_no_to_delete}")
-
-
+    # --- Delete trade ---
+    st.subheader("❌ Delete Trade")
+    trade_no_to_delete = st.number_input("Trade No to Delete", step=1)
+    if st.button("Delete"):
+        delete_trade(int(trade_no_to_delete))
+        st.warning(f"Deleted Trade {trade_no_to_delete}")
 
     # Auto-refresh logic
     if auto_refresh:
