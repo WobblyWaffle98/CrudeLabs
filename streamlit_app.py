@@ -791,6 +791,10 @@ def main():
                         if not calls_df.empty or not puts_df.empty:
                             st.markdown("#### 🔗 Enhanced Options Chain")
                             
+                            # ✅ Remove options with zero premium
+                            calls_df = calls_df[calls_df['bidPrice'] > 0]
+                            puts_df = puts_df[puts_df['bidPrice'] > 0]
+                            
                             # Create sophisticated options visualization
                             fig_chain = go.Figure()
                             
@@ -804,7 +808,7 @@ def main():
                                         marker=dict(size=10,   # ✅ Fixed standard bubble size
                                                     color='#10b981', opacity=0.7),
                                         hovertemplate='<b>Call</b><br>Strike: $%{x}<br>Price: $%{y}<br>Volume: %{text}<extra></extra>',
-                                        text=calls_df['volume']  # ✅ Show actual volume in hover
+                                        text=calls_df['volume']
                                     )
                                 )
                             
@@ -818,7 +822,7 @@ def main():
                                         marker=dict(size=10,   # ✅ Fixed standard bubble size
                                                     color='#ef4444', opacity=0.7),
                                         hovertemplate='<b>Put</b><br>Strike: $%{x}<br>Price: $%{y}<br>Volume: %{text}<extra></extra>',
-                                        text=puts_df['volume']  # ✅ Show actual volume in hover
+                                        text=puts_df['volume']
                                     )
                                 )
                             
@@ -830,15 +834,16 @@ def main():
                             
                             # Cap y-axis to max premium = 5
                             fig_chain.update_layout(
-                                title=f"Options Chain - {selected_contract} (Bubble size = Standard)",
+                                title=f"Options Chain - {selected_contract} (Bubble size = Standard, Excluding 0 Premium)",
                                 xaxis_title="Strike Price ($)",
                                 yaxis_title="Option Price ($)",
-                                yaxis=dict(range=[0, 5]),   # ✅ Cap premiums
+                                yaxis=dict(range=[0, 5]),
                                 template="plotly_dark",
                                 height=600
                             )
                             
                             st.plotly_chart(fig_chain, use_container_width=True, key='curve')
+
 
 
     # TAB 3: Price Discovery & Historical Analysis
