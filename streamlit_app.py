@@ -683,9 +683,9 @@ def main():
         else:
             st.warning("Please wait for the initial contracts data to load.")
 
-    # === TAB 4: 3D Plot ===
+   # === TAB 4: 2D Facet Plot ===
     with tab4:
-        st.subheader("3D Options Visualization (All 10 Contracts)")
+        st.subheader("2D Options Visualization by Contract (Faceted)")
 
         # Collect all cached contracts (first 10 pulled earlier)
         cached_contracts = [c for c in merged_df['Contract'].head(10).tolist() 
@@ -718,33 +718,31 @@ def main():
                     filtered_df = combined_df
 
                 if not filtered_df.empty and all(col in filtered_df.columns for col in ['strike', 'lastPrice', 'Contract']):
-                    st.info("Interactive 3D plot of Premium vs. Contract vs. Strike Price")
+                    st.info("Facet grid of Premium vs. Strike Price (one subplot per Contract)")
 
-                    fig = px.scatter_3d(
+                    fig = px.scatter(
                         filtered_df,
-                        x="Contract",
-                        y="strike",
-                        z="lastPrice",
-                        color="optionType",
+                        x="strike",
+                        y="lastPrice",
+                        color="optionType",   # color by Call / Put
                         symbol="optionType",
-                        size="lastPrice",
-                        hover_data=["bidPrice", "askPrice", "volume", "openInterest"]
+                        facet_col="Contract",  # separate subplot per contract
+                        facet_col_wrap=3,      # wrap into rows of 3
+                        hover_data=["bidPrice", "askPrice", "volume", "openInterest"],
+                        labels={"strike": "Strike Price", "lastPrice": "Premium (Last Price)"}
                     )
 
-                    fig.update_traces(marker=dict(opacity=0.8))
+                    fig.update_traces(marker=dict(size=6, opacity=0.7))
                     fig.update_layout(
-                        scene=dict(
-                            xaxis_title="Contract",
-                            yaxis_title="Strike Price",
-                            zaxis_title="Premium (Last Price)"
-                        ),
+                        title="Options Across Contracts (Faceted by Contract)",
+                        template="plotly_white",
                         legend_title="Option Type",
-                        margin=dict(l=0, r=0, b=0, t=40)
+                        height=600
                     )
 
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.warning("Not enough data available for 3D visualization.")
+                    st.warning("Not enough data available for faceted 2D visualization.")
             else:
                 st.warning("No options data available for visualization.")
         else:
