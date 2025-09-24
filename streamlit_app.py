@@ -683,7 +683,7 @@ def main():
         else:
             st.warning("Please wait for the initial contracts data to load.")
 
-   # === TAB 4: 2D Facet Plot ===
+ # === TAB 4: 2D Facet Plot (Ask Price + ATM Line) ===
     with tab4:
         st.subheader("2D Options Visualization by Contract (Faceted)")
 
@@ -717,27 +717,48 @@ def main():
                 else:
                     filtered_df = combined_df
 
-                if not filtered_df.empty and all(col in filtered_df.columns for col in ['strike', 'lastPrice', 'Contract']):
-                    st.info("Facet grid of Premium vs. Strike Price (one subplot per Contract)")
+                # Make sure strike and askPrice are numeric
+                filtered_df["strike"] = pd.to_numeric(filtered_df["strike"], errors="coerce")
+                filtered_df["askPrice"] = pd.to_numeric(filtered_df["askPrice"], errors="coerce")
 
+                if not filtered_df.empty and all(col in filtered_df.columns for col in ['strike', 'askPrice', 'Contract']):
+                    st.info("Facet grid of Ask Price vs. Strike Price (ATM line shown per contract)")
+
+                    # Get futures last prices to approximate ATM strike
+                    atm_map = dict(zip(merged_df['Contract'], merged_df['Last Price']))
+
+                    # Build scatter facet plot
                     fig = px.scatter(
                         filtered_df,
                         x="strike",
-                        y="lastPrice",
-                        color="optionType",   # color by Call / Put
+                        y="askPrice",
+                        color="optionType",   # Calls vs Puts
                         symbol="optionType",
-                        facet_col="Contract",  # separate subplot per contract
-                        facet_col_wrap=3,      # wrap into rows of 3
-                        hover_data=["bidPrice", "askPrice", "volume", "openInterest"],
-                        labels={"strike": "Strike Price", "lastPrice": "Premium (Last Price)"}
+                        facet_col="Contract",  # one subplot per contract
+                        facet_col_wrap=3,
+                        hover_data=["bidPrice", "lastPrice", "volume", "openInterest"],
+                        labels={"strike": "Strike Price", "askPrice": "Ask Price"}
                     )
 
                     fig.update_traces(marker=dict(size=6, opacity=0.7))
+
+                    # Add ATM strike lines
+                    for i, contract in enumerate(filtered_df["Contract"].unique()):
+                        if contract in atm_map:
+                            atm_strike = atm_map[contract]
+                            fig.add_shape(
+                                type="line",
+                                x0=atm_strike, x1=atm_strike,
+                                y0=0, y1=filtered_df["askPrice"].max(),
+                                line=dict(color="red", dash="dash"),
+                                xref=f"x{i+1}", yref=f"y{i+1}"  # match facet axes
+                            )
+
                     fig.update_layout(
-                        title="Options Across Contracts (Faceted by Contract)",
+                        title="Options Across Contracts (Ask Price, Faceted by Contract)",
                         template="plotly_white",
                         legend_title="Option Type",
-                        height=600
+                        height=700
                     )
 
                     st.plotly_chart(fig, use_container_width=True)
