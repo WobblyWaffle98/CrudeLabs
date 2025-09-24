@@ -320,7 +320,7 @@ def main():
             st.warning("No contracts available to fetch initially.")
 
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["Futures Curve with Options", "Front Month Data", "Options Prices", "3D Options Surface"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Futures Curve with Options", "Front Month Data", "Options Prices", "2D Options Curve"])
     
     with tab1:
         st.subheader("Futures Curve with Options Data")
