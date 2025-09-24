@@ -1062,66 +1062,87 @@ def main():
                 open_trades_df = trades_df[trades_df.get('status', '') == 'Open'] if 'status' in trades_df.columns else trades_df
                 
                 if not open_trades_df.empty:
-                    # Select trade to manage
-                    trade_options = [f"Trade #{row['trade_no']} - {row['underlying']} {row['option_type']} {row['strike_price']}" 
-                                for _, row in open_trades_df.iterrows()]
+                    # Select trade to manage - with error handling for missing columns
+                    trade_options = []
+                    required_cols = ['trade_no', 'underlying', 'option_type', 'strike_price']
+                    
+                    for _, row in open_trades_df.iterrows():
+                        try:
+                            trade_no = row.get('trade_no', 'N/A')
+                            underlying = row.get('underlying', 'N/A')
+                            option_type = row.get('option_type', 'N/A')
+                            strike_price = row.get('strike_price', 'N/A')
+                            
+                            trade_options.append(f"Trade #{trade_no} - {underlying} {option_type} {strike_price}")
+                        except Exception as e:
+                            trade_options.append(f"Trade #{row.name} - Error loading details")
                     
                     selected_trade_idx = st.selectbox("Select Trade to Manage", 
                                                     range(len(trade_options)), 
                                                     format_func=lambda x: trade_options[x])
                     
                     selected_trade = open_trades_df.iloc[selected_trade_idx]
-                    trade_no = selected_trade['trade_no']
+                    trade_no = selected_trade.get('trade_no', 'N/A')
                     
-                    # Display trade details
+                    # Display trade details with safe column access
                     st.write("**Trade Details:**")
                     col1, col2, col3 = st.columns(3)
                     
                     with col1:
                         st.write(f"**Trade #:** {trade_no}")
-                        st.write(f"**Underlying:** {selected_trade['underlying']}")
-                        st.write(f"**Type:** {selected_trade['option_type']}")
+                        st.write(f"**Underlying:** {selected_trade.get('underlying', 'N/A')}")
+                        st.write(f"**Type:** {selected_trade.get('option_type', 'N/A')}")
                     
                     with col2:
-                        st.write(f"**Direction:** {selected_trade['direction']}")
-                        st.write(f"**Strike:** ${selected_trade['strike_price']}")
-                        st.write(f"**Entry Price:** ${selected_trade['entry_price']:.3f}")
+                        st.write(f"**Direction:** {selected_trade.get('direction', 'N/A')}")
+                        st.write(f"**Strike:** ${selected_trade.get('strike_price', 0)}")
+                        st.write(f"**Entry Price:** ${selected_trade.get('entry_price', 0):.3f}")
                     
                     with col3:
                         contracts = selected_trade.get('contracts', 1)
                         st.write(f"**Contracts:** {contracts}")
-                        days_left = calculate_days_to_expiry(selected_trade['expiration_date'])
-                        st.write(f"**Days to Expiry:** {days_left}")
                         
-                        # Color code based on days left
-                        if days_left < 0:
-                            st.error("⚠️ EXPIRED")
-                        elif days_left < 7:
-                            st.warning("🔥 Expires Soon")
+                        expiry_date = selected_trade.get('expiration_date')
+                        if expiry_date:
+                            days_left = calculate_days_to_expiry(expiry_date)
+                            st.write(f"**Days to Expiry:** {days_left}")
+                            
+                            # Color code based on days left
+                            if days_left < 0:
+                                st.error("⚠️ EXPIRED")
+                            elif days_left < 7:
+                                st.warning("🔥 Expires Soon")
+                            else:
+                                st.success("✅ Active")
                         else:
-                            st.success("✅ Active")
+                            st.write("**Days to Expiry:** N/A")
                     
                     # Update current market price
                     st.subheader("Update Market Price")
                     
                     # Try to get current price from live data
                     current_market_price = None
-                    if selected_trade['underlying'] in merged_df['Contract'].values:
+                    underlying = selected_trade.get('underlying')
+                    
+                    if underlying and not merged_df.empty and underlying in merged_df['Contract'].values:
                         # Get current futures price (as reference)
-                        current_futures_price = merged_df[merged_df['Contract'] == selected_trade['underlying']]['Last Price'].iloc[0]
+                        current_futures_price = merged_df[merged_df['Contract'] == underlying]['Last Price'].iloc[0]
                         st.info(f"Current futures price: ${current_futures_price:.2f}")
                         
                         # Try to get current options price from cached data
-                        contract_symbol = selected_trade['underlying']
+                        contract_symbol = underlying
                         if f'options_data_{contract_symbol}' in st.session_state:
                             calls_df, puts_df = st.session_state[f'options_data_{contract_symbol}']
                             
                             # Find matching option
-                            target_df = calls_df if selected_trade['option_type'] == 'Call' else puts_df
-                            if not target_df.empty:
+                            option_type = selected_trade.get('option_type', 'Call')
+                            strike_price = selected_trade.get('strike_price', 0)
+                            
+                            target_df = calls_df if option_type == 'Call' else puts_df
+                            if not target_df.empty and 'strike' in target_df.columns:
                                 # Find closest strike
                                 target_df['strike_num'] = pd.to_numeric(target_df['strike'], errors='coerce')
-                                closest_strike_idx = (target_df['strike_num'] - selected_trade['strike_price']).abs().idxmin()
+                                closest_strike_idx = (target_df['strike_num'] - strike_price).abs().idxmin()
                                 
                                 if pd.notna(closest_strike_idx):
                                     current_option = target_df.loc[closest_strike_idx]
@@ -1142,10 +1163,13 @@ def main():
                         
                         if st.button("Update Price"):
                             # Calculate unrealized P&L
+                            entry_price = selected_trade.get('entry_price', 0)
+                            direction = selected_trade.get('direction', 'Buy')
+                            
                             unrealized_pnl = calculate_pnl(
-                                selected_trade['entry_price'], 
+                                entry_price, 
                                 new_current_price, 
-                                selected_trade['direction'], 
+                                direction, 
                                 contracts
                             )
                             
@@ -1191,11 +1215,15 @@ def main():
                                 st.rerun()
                     
                     # Display current P&L if price is available
-                    if 'current_price' in selected_trade and pd.notna(selected_trade.get('current_price')):
+                    current_price = selected_trade.get('current_price')
+                    entry_price = selected_trade.get('entry_price', 0)
+                    direction = selected_trade.get('direction', 'Buy')
+                    
+                    if current_price and pd.notna(current_price):
                         current_pnl = calculate_pnl(
-                            selected_trade['entry_price'], 
-                            selected_trade['current_price'], 
-                            selected_trade['direction'], 
+                            entry_price, 
+                            current_price, 
+                            direction, 
                             contracts
                         )
                         
