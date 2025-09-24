@@ -640,7 +640,7 @@ def main():
                 colA, colB, colC= st.columns(3)
 
                 with colA:
-                    st.metric("📊 Last Price", f"${contract_data['Last Price']:.2f}")
+                    st.metric("📊 Underlying Price", f"${contract_data['Last Price']:.2f}")
                     st.metric("📈 Price Change", f"{contract_data.get('priceChange', 0):+.2f}")
                 
                 with colB:
