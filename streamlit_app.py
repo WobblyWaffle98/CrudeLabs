@@ -826,7 +826,7 @@ def main():
                                 height=600
                             )
                             
-                            st.plotly_chart(fig_chain, use_container_width=True)
+                            st.plotly_chart(fig_chain, use_container_width=True, key='curve')
 
 
     # TAB 3: Price Discovery & Historical Analysis
