@@ -10,6 +10,7 @@ import time
 import numpy as np
 import yfinance as yf
 from curl_cffi import requests as curl_requests
+import sqlite3
 
 # Set page config
 st.set_page_config(
