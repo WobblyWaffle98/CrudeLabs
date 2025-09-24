@@ -881,20 +881,9 @@ def main():
             # Get and display trades
             trades_df = get_trades()
             
-            # Debug information
-            st.write(f"**Debug Info:**")
-            st.write(f"- MongoDB Connected: {mongo_connected}")
-            st.write(f"- Trades DataFrame Shape: {trades_df.shape}")
-            st.write(f"- Trades DataFrame Empty: {trades_df.empty}")
+        
             
             if not trades_df.empty:
-                st.write(f"- Available Columns: {list(trades_df.columns)}")
-            
-            if not trades_df.empty:
-                # Simple display first - show raw data
-                st.subheader("Raw Trade Data")
-                st.dataframe(trades_df, use_container_width=True)
-                
                 # Then try formatted display
                 st.subheader("Formatted Display")
                 
