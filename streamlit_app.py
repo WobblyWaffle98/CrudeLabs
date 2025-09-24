@@ -321,12 +321,12 @@ def main():
             st.warning("No contracts available to fetch initially.")
 
     # Create tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4= st.tabs([
     "Options Curve", 
     "Expiry Distribution", 
     "Contract Comparison", 
     "2D Visualization", 
-    "Trade Ledger"
+   
 ])
 
     
