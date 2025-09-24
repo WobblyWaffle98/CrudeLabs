@@ -699,35 +699,50 @@ def main():
                     if advanced_mode:
                         st.markdown("#### 🔬 Greeks Analysis")
                         
+                        # Ensure strike is numeric
+                        calls_df['strike'] = pd.to_numeric(calls_df['strike'], errors='coerce')
+                        puts_df['strike'] = pd.to_numeric(puts_df['strike'], errors='coerce')
+                        calls_df = calls_df.dropna(subset=['strike'])
+                        puts_df = puts_df.dropna(subset=['strike'])
+
                         # Calculate approximate Greeks
                         calls_with_greeks = calculate_greeks_approximation(calls_df, underlying_price)
                         puts_with_greeks = calculate_greeks_approximation(puts_df, underlying_price)
-                        
+
+                        # Filter strikes within ±20 of ATM
+                        lower_bound = underlying_price - 20
+                        upper_bound = underlying_price + 20
+
+                        calls_near_atm = calls_with_greeks[(calls_with_greeks['strike'] >= lower_bound) &
+                                                        (calls_with_greeks['strike'] <= upper_bound)]
+                        puts_near_atm = puts_with_greeks[(puts_with_greeks['strike'] >= lower_bound) &
+                                                        (puts_with_greeks['strike'] <= upper_bound)]
+
                         col1, col2 = st.columns(2)
-                        
+
                         with col1:
-                            if not calls_with_greeks.empty:
+                            if not calls_near_atm.empty:
                                 st.markdown("##### 📈 Calls Greeks")
-                                greeks_display = calls_with_greeks[['strike', 'lastPrice', 'delta_approx', 'gamma_approx']].head(10)
+                                greeks_display = calls_near_atm[['strike', 'lastPrice', 'delta_approx', 'gamma_approx']]
                                 greeks_display.columns = ['Strike', 'Price', 'Delta*', 'Gamma*']
                                 st.dataframe(greeks_display.style.format({
                                     'Price': '${:.2f}',
                                     'Delta*': '{:.3f}',
                                     'Gamma*': '{:.3f}'
                                 }))
-                        
+
                         with col2:
-                            if not puts_with_greeks.empty:
+                            if not puts_near_atm.empty:
                                 st.markdown("##### 📉 Puts Greeks")
-                                greeks_display = puts_with_greeks[['strike', 'lastPrice', 'delta_approx', 'gamma_approx']].head(10)
+                                greeks_display = puts_near_atm[['strike', 'lastPrice', 'delta_approx', 'gamma_approx']]
                                 greeks_display.columns = ['Strike', 'Price', 'Delta*', 'Gamma*']
                                 st.dataframe(greeks_display.style.format({
                                     'Price': '${:.2f}',
                                     'Delta*': '{:.3f}',
                                     'Gamma*': '{:.3f}'
                                 }))
-                        
-                        st.caption("*Approximate values for illustration")
+
+                        st.caption("*Approximate values")
 
     # TAB 3: Price Discovery & Historical Analysis
     with tab3:
