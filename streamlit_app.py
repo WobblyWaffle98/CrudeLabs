@@ -796,32 +796,44 @@ def main():
                             
                             if not calls_df.empty:
                                 fig_chain.add_trace(
-                                    go.Scatter(x=calls_df['strike'], y=calls_df['bidPrice'],
-                                            mode='markers', name='Calls',
-                                            marker=dict(size=calls_df['volume']/10, 
-                                                        color='#10b981', opacity=0.7,
-                                                        sizemode='area', sizeref=2),
-                                            hovertemplate='<b>Call</b><br>Strike: $%{x}<br>Price: $%{y}<br>Volume: %{marker.size}<extra></extra>')
+                                    go.Scatter(
+                                        x=calls_df['strike'], 
+                                        y=calls_df['bidPrice'],
+                                        mode='markers', 
+                                        name='Calls',
+                                        marker=dict(size=10,   # ✅ Fixed standard bubble size
+                                                    color='#10b981', opacity=0.7),
+                                        hovertemplate='<b>Call</b><br>Strike: $%{x}<br>Price: $%{y}<br>Volume: %{text}<extra></extra>',
+                                        text=calls_df['volume']  # ✅ Show actual volume in hover
+                                    )
                                 )
                             
                             if not puts_df.empty:
                                 fig_chain.add_trace(
-                                    go.Scatter(x=puts_df['strike'], y=puts_df['bidPrice'],
-                                            mode='markers', name='Puts',
-                                            marker=dict(size=puts_df['volume']/10,
-                                                        color='#ef4444', opacity=0.7,
-                                                        sizemode='area', sizeref=2),
-                                            hovertemplate='<b>Put</b><br>Strike: $%{x}<br>Price: $%{y}<br>Volume: %{marker.size}<extra></extra>')
+                                    go.Scatter(
+                                        x=puts_df['strike'], 
+                                        y=puts_df['bidPrice'],
+                                        mode='markers', 
+                                        name='Puts',
+                                        marker=dict(size=10,   # ✅ Fixed standard bubble size
+                                                    color='#ef4444', opacity=0.7),
+                                        hovertemplate='<b>Put</b><br>Strike: $%{x}<br>Price: $%{y}<br>Volume: %{text}<extra></extra>',
+                                        text=puts_df['volume']  # ✅ Show actual volume in hover
+                                    )
                                 )
                             
                             # Add ATM line
-                            fig_chain.add_vline(x=underlying, line_dash="dash", 
-                                            line_color="white", annotation_text="ATM")
+                            fig_chain.add_vline(
+                                x=underlying, line_dash="dash", 
+                                line_color="white", annotation_text="ATM"
+                            )
                             
+                            # Cap y-axis to max premium = 5
                             fig_chain.update_layout(
-                                title=f"Options Chain - {selected_contract} (Bubble size = Volume)",
+                                title=f"Options Chain - {selected_contract} (Bubble size = Standard)",
                                 xaxis_title="Strike Price ($)",
                                 yaxis_title="Option Price ($)",
+                                yaxis=dict(range=[0, 5]),   # ✅ Cap premiums
                                 template="plotly_dark",
                                 height=600
                             )
