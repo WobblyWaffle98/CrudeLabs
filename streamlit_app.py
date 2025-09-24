@@ -320,7 +320,14 @@ def main():
             st.warning("No contracts available to fetch initially.")
 
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["Futures Curve with Options", "Front Month Data", "Options Prices", "2D Options Curve"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "Options Curve", 
+    "Expiry Distribution", 
+    "Contract Comparison", 
+    "2D Visualization", 
+    "Trade Ledger"
+])
+
     
     with tab1:
         st.subheader("Futures Curve with Options Data")
@@ -788,6 +795,117 @@ def main():
                 st.warning("No options data available for visualization.")
         else:
             st.warning("Please wait for the initial contracts data to load.")
+
+    # === TAB 5: Trade Ledger ===
+    with tab5:
+        st.subheader("📊 Trade Ledger")
+
+        DB_FILE = "trades.db"
+
+        # --- DB Helpers ---
+        def init_db():
+            conn = sqlite3.connect(DB_FILE)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS trades (
+                trade_no INTEGER PRIMARY KEY,
+                trade_date TEXT,
+                underlying TEXT,
+                tenure TEXT,
+                expiration_date TEXT,
+                days_to_expiry INTEGER,
+                expired TEXT,
+                option_type TEXT,
+                direction TEXT,
+                strike_price REAL,
+                entry_price REAL,
+                entry_price_bbl REAL,
+                closing_price REAL,
+                closing_price_bbl REAL,
+                close_date TEXT,
+                settlement_price REAL,
+                commission REAL,
+                payoff_settlement REAL,
+                initial_premium REAL,
+                final_pnl REAL
+            );
+            """)
+            conn.commit()
+            return conn
+
+        def get_trades():
+            conn = sqlite3.connect(DB_FILE)
+            return pd.read_sql("SELECT * FROM trades", conn)
+
+        def add_trade(trade):
+            conn = sqlite3.connect(DB_FILE)
+            cols = ",".join(trade.keys())
+            placeholders = ",".join(["?"] * len(trade))
+            conn.execute(
+                f"INSERT INTO trades ({cols}) VALUES ({placeholders})", 
+                tuple(trade.values())
+            )
+            conn.commit()
+
+        def delete_trade(trade_no):
+            conn = sqlite3.connect(DB_FILE)
+            conn.execute("DELETE FROM trades WHERE trade_no = ?", (trade_no,))
+            conn.commit()
+
+        # --- Initialize DB ---
+        init_db()
+
+        # View trades
+        st.subheader("All Trades")
+        df = get_trades()
+        st.dataframe(df, use_container_width=True)
+
+        # Add trade
+        st.subheader("➕ Add New Trade")
+        with st.form("add_trade_form"):
+            trade_no = st.number_input("Trade No", step=1)
+            trade_date = st.date_input("Trade Date")
+            underlying = st.text_input("Underlying")
+            tenure = st.text_input("Tenure")
+            expiration_date = st.date_input("Expiration Date")
+            option_type = st.selectbox("Option Type", ["Call", "Put"])
+            direction = st.selectbox("Direction", ["Buy", "Sell"])
+            strike_price = st.number_input("Strike Price", step=0.01)
+            entry_price = st.number_input("Entry Price", step=0.01)
+            final_pnl = st.number_input("Final P&L", step=0.01)
+
+            submitted = st.form_submit_button("Add Trade")
+            if submitted:
+                add_trade({
+                    "trade_no": trade_no,
+                    "trade_date": trade_date.isoformat(),
+                    "underlying": underlying,
+                    "tenure": tenure,
+                    "expiration_date": expiration_date.isoformat(),
+                    "days_to_expiry": None,
+                    "expired": None,
+                    "option_type": option_type,
+                    "direction": direction,
+                    "strike_price": strike_price,
+                    "entry_price": entry_price,
+                    "entry_price_bbl": None,
+                    "closing_price": None,
+                    "closing_price_bbl": None,
+                    "close_date": None,
+                    "settlement_price": None,
+                    "commission": None,
+                    "payoff_settlement": None,
+                    "initial_premium": None,
+                    "final_pnl": final_pnl
+                })
+                st.success("Trade added!")
+
+        # Delete trade
+        st.subheader("❌ Delete Trade")
+        trade_no_to_delete = st.number_input("Trade No to Delete", step=1)
+        if st.button("Delete"):
+            delete_trade(trade_no_to_delete)
+            st.warning(f"Deleted Trade {trade_no_to_delete}")
+
 
 
     # Auto-refresh logic
