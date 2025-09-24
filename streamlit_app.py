@@ -1360,19 +1360,6 @@ def main():
         else:
             st.warning("⚠️ Running in session-only mode (data will be lost on refresh)")
 
-        # Auto-refresh for open positions
-        if not trades_df.empty:
-            open_count = len(trades_df[trades_df.get('status', '') == 'Open']) if 'status' in trades_df.columns else 0
-            if open_count > 0:
-                auto_update = st.checkbox(f"Auto-update open positions ({open_count} open)", value=False)
-                if auto_update:
-                    st.info("🔄 Auto-updating every 60 seconds...")
-                    time.sleep(60)
-                    st.rerun()
-        # Auto-refresh logic
-        if auto_refresh:
-            time.sleep(30)
-            st.rerun()
 
 if __name__ == "__main__":
     main()
