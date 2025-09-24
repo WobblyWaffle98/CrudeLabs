@@ -503,13 +503,12 @@ def main():
             st.success("✅ Options data loaded successfully!")
 
     # Enhanced tabbed interface
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Market Analysis", 
         "⚡ Options Flow", 
         "📈 Price Discovery", 
         "🎯 Risk Analytics",
         "🔍 Contract Deep Dive",
-        "📋 Portfolio Tools"
     ])
     
     # TAB 1: Enhanced Market Analysis
@@ -1102,144 +1101,6 @@ def main():
                         puts_display = puts_df[['strike', 'lastPrice', 'bidPrice', 'askPrice', 'volume', 'openInterest']].copy()
                         puts_display.columns = ['Strike', 'Last', 'Bid', 'Ask', 'Volume', 'OI']
                         st.dataframe(puts_display.head(15), use_container_width=True)
-
-    # TAB 6: Portfolio Tools
-    with tab6:
-        st.markdown("### 📋 Portfolio Management Tools")
-        
-        # Position tracker
-        st.markdown("#### 💼 Position Tracker")
-        
-        # Initialize session state for positions
-        if 'positions' not in st.session_state:
-            st.session_state.positions = pd.DataFrame(columns=[
-                'Contract', 'Type', 'Strike', 'Quantity', 'Entry_Price', 'Current_Price', 'PnL'
-            ])
-        
-        # Add position form
-        with st.expander("➕ Add New Position"):
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                pos_contract = st.selectbox("Contract", merged_df['Contract'].tolist())
-                pos_type = st.selectbox("Type", ["Future", "Call", "Put"])
-            
-            with col2:
-                pos_strike = st.number_input("Strike (if option)", min_value=0.0, value=70.0)
-                pos_quantity = st.number_input("Quantity", min_value=1, value=1)
-            
-            with col3:
-                pos_entry = st.number_input("Entry Price", min_value=0.0, value=75.0)
-                
-            with col4:
-                st.write("")  # Spacing
-                if st.button("Add Position", type="primary"):
-                    # Get current price
-                    current_price = merged_df[merged_df['Contract'] == pos_contract]['Last Price'].iloc[0] if pos_type == "Future" else pos_entry
-                    
-                    # Calculate P&L
-                    if pos_type == "Future":
-                        pnl = (current_price - pos_entry) * pos_quantity
-                    else:
-                        pnl = 0  # Would need real options pricing for accurate P&L
-                    
-                    new_position = {
-                        'Contract': pos_contract,
-                        'Type': pos_type,
-                        'Strike': pos_strike if pos_type != "Future" else None,
-                        'Quantity': pos_quantity,
-                        'Entry_Price': pos_entry,
-                        'Current_Price': current_price,
-                        'PnL': pnl
-                    }
-                    
-                    st.session_state.positions = pd.concat([
-                        st.session_state.positions,
-                        pd.DataFrame([new_position])
-                    ], ignore_index=True)
-                    
-                    st.success("Position added!")
-        
-        # Display positions
-        if not st.session_state.positions.empty:
-            st.markdown("#### 📊 Current Positions")
-            
-            # Format the positions dataframe
-            positions_display = st.session_state.positions.copy()
-            positions_display['Entry_Price'] = positions_display['Entry_Price'].apply(lambda x: f"${x:.2f}")
-            positions_display['Current_Price'] = positions_display['Current_Price'].apply(lambda x: f"${x:.2f}")
-            positions_display['PnL'] = positions_display['PnL'].apply(lambda x: f"${x:+.2f}")
-            
-            st.dataframe(
-                positions_display.style.applymap(
-                    lambda x: 'color: green' if '+' in str(x) else 'color: red' if '-' in str(x) else '',
-                    subset=['PnL']
-                ),
-                use_container_width=True
-            )
-            
-            # Portfolio summary
-            total_pnl = st.session_state.positions['PnL'].sum()
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Total P&L", f"${total_pnl:+,.2f}")
-            
-            with col2:
-                st.metric("Number of Positions", len(st.session_state.positions))
-            
-            with col3:
-                if st.button("Clear All Positions", type="secondary"):
-                    st.session_state.positions = pd.DataFrame(columns=[
-                        'Contract', 'Type', 'Strike', 'Quantity', 'Entry_Price', 'Current_Price', 'PnL'
-                    ])
-                    st.rerun()
-        
-        # Market alerts
-        st.markdown("#### 🚨 Market Alerts")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            alert_contract = st.selectbox("Alert Contract", merged_df['Contract'].tolist(), key="alert_contract")
-            alert_condition = st.selectbox("Condition", ["Price Above", "Price Below", "Volume Above"])
-            alert_value = st.number_input("Alert Value", min_value=0.0, value=75.0)
-        
-        with col2:
-            st.write("")  # Spacing
-            if st.button("Set Alert", type="primary"):
-                st.success(f"Alert set: {alert_contract} {alert_condition} {alert_value}")
-                # In a real app, you'd store this alert and check it periodically
-        
-        # Export functionality
-        st.markdown("#### 📥 Data Export")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("📊 Export Futures Data"):
-                csv = merged_df.to_csv(index=False)
-                st.download_button(
-                    label="Download CSV",
-                    data=csv,
-                    file_name=f"futures_data_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
-        
-        with col2:
-            if not st.session_state.positions.empty:
-                if st.button("💼 Export Positions"):
-                    positions_csv = st.session_state.positions.to_csv(index=False)
-                    st.download_button(
-                        label="Download Positions",
-                        data=positions_csv,
-                        file_name=f"positions_{datetime.datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-        
-        with col3:
-            if st.button("📈 Generate Report"):
-                st.info("📊 Comprehensive report generation coming soon!")
 
     # Auto-refresh functionality
     if auto_refresh:
